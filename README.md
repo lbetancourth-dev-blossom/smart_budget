@@ -6,10 +6,22 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 
 ## Estado actual
 
-- **Fase 0 (El Reflejo):** en desarrollo — rama `DATA-1041`.
-- Modelo: mediana del gasto histórico mensual por `member × category`.
-- Pipeline implementado: `scripts/run_phase0.py` (filtros → agregación → mediana → output).
-- Datos de test disponibles en `data/dough/test/` (5 members, 6 meses de historial).
+**Fase 0 (El Reflejo)** — rama `DATA-1041`
+
+| Step | Estado | Resultado |
+|------|--------|-----------|
+| Step 1 — Extracción DOUGH | ✅ | 30 tablas dev + 23 alpha → `data/dough/*/silver/` |
+| Step 2 — Extracción OLB | ✅ | 7 tablas → `data/olb/dev/silver/` (1.06M txns) |
+| Step 3 — `fact_transactions` | ✅ | **1,413,914 filas** (OLB SUB + LOAN + Dough EXT), rango 2022–2026 |
+| Step 4 — Modelo mediana | 🔄 | Pendiente: aplicar sobre `fact_transactions` |
+| Step 5 — Output BD | 🔄 | Pendiente: escribir a `budget` + `budgetcategory` |
+
+**Arquitectura de datos:**
+```
+OLBSubAccountTransaction ─┐
+OLBLoanTransaction        ├──→ fact_transactions ──→ Smart Budget
+externaltransaction       ─┘
+```
 
 ## Catálogo de categorías
 
@@ -72,44 +84,58 @@ Smart Budget **solo opera sobre el Grupo 1 (Expenses)**.
 
 ```
 smart_budget/
-├── README.md                       Este archivo.
+├── README.md
 ├── .github/
-│   └── copilot-instructions.md     Convenciones de código y reglas para GitHub Copilot.
-├── data/
-│   └── dough/
-│       ├── bronze/                 Snapshots crudos del lake (incluye metadata DMS).
-│       ├── silver/                 Snapshots limpios (capa de análisis).
-│       └── gold/                   (Vacía hoy; destino de los outputs DS-ML.)
+│   └── copilot-instructions.md         Convenciones y reglas para GitHub Copilot.
+├── data/                               Gitignored — datos locales.
+│   ├── dough/
+│   │   ├── dev/silver/*.csv            30 tablas DOUGH (dev)
+│   │   ├── alpha/silver/*.csv          23 tablas DOUGH (alpha)
+│   │   ├── fact_transactions.csv       Tabla central: 1,413,914 filas
+│   │   ├── fact_transactions_expenditure.csv   Solo gastos — apto para Excel
+│   │   └── fact_transactions_sample.csv        Muestra 50k filas
+│   └── olb/dev/silver/*.csv            7 tablas OLB dev
 ├── docs/
-│   ├── data_review.md              Revisión de datos disponibles, capas y hallazgos.
-│   ├── glosario.md                 Glosario de términos del proyecto.
-│   └── (futuro) ARCHITECTURE.md, DECISIONS.md, DATA_CONTRACT.md
+│   ├── plan/
+│   │   ├── plan_phase_0.md             Plan de implementación con resultados por step.
+│   │   └── phase0_remaining_tasks.md   Tareas pendientes para producción.
+│   ├── fact_transactions_README.md     Schema y documentación de fact_transactions.
+│   └── glosario.md                     Glosario de términos del proyecto.
 └── scripts/
-    └── extract_dough_to_csv.py     Script de extracción S3 → CSV local.
+    ├── extract_dough_to_csv.py         Extrae tablas DOUGH de S3 → CSV local.
+    └── build_fact_transactions.py      Construye fact_transactions (OLB + DOUGH).
 ```
 
 ## Cómo refrescar los datos locales
 
-El script lee parquet desde S3 y escribe CSV en `data/dough/{bronze,silver}/`. Requiere AWS CLI configurado con perfil `blossom-dev`.
+Requiere AWS CLI con perfil `blossom-dev` y SSO activo.
 
 ```bash
-# Configurar perfil (solo la primera vez)
-aws configure --profile blossom-dev
+# Login SSO
+aws sso login --profile blossom-dev
 
 # Instalar dependencias
 pip install boto3 pandas pyarrow
 
-# Ejecutar la extracción
-python scripts/extract_dough_to_csv.py
+# 1. Extraer tablas DOUGH (dev o alpha)
+python scripts/extract_dough_to_csv.py --env dev
+
+# 2. Construir fact_transactions
+python scripts/build_fact_transactions.py --env dev
+# Output: data/dough/fact_transactions.csv  (1.4M filas)
+#         data/dough/fact_transactions_expenditure.csv  (solo gastos, apto Excel)
+#         data/dough/fact_transactions_sample.csv       (50k filas para exploración)
 ```
 
 ## Documentación clave
 
 | Documento | Para qué |
 |---|---|
-| [`docs/data_review.md`](docs/data_review.md) | Estado y diferencias de bronze/silver/gold, diccionario de tablas, diagrama ER, gaps de data. |
-| [`docs/glosario.md`](docs/glosario.md) | Definiciones alfabéticas de términos del proyecto (Dough, Plaid, Finicity, Ntropy, RICH, etc.). |
-| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | Reglas para GitHub Copilot: stack, convenciones, restricciones legales, casos edge. |
+| [`docs/plan/plan_phase_0.md`](docs/plan/plan_phase_0.md) | Plan Fase 0 con resultados por step. |
+| [`docs/plan/phase0_remaining_tasks.md`](docs/plan/phase0_remaining_tasks.md) | Tareas pendientes hasta producción (testing, BD, API, compliance). |
+| [`docs/fact_transactions_README.md`](docs/fact_transactions_README.md) | Schema completo de `fact_transactions`: columnas, ids, fuentes. |
+| [`docs/glosario.md`](docs/glosario.md) | Definiciones de términos del proyecto (Dough, Plaid, OLB, RICH, etc.). |
+| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | Stack, convenciones, restricciones legales, casos edge. |
 
 ## Referencias externas
 

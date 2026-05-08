@@ -125,10 +125,17 @@ externaltransaction      ─┘         (esta tabla)
 ## Generación
 
 ```bash
-# Primero extraer las tablas OLB del datalake:
-python3 scripts/extract_dough_to_csv.py --env dev  # extrae DOUGH silver
+# Login SSO (si no está activo)
+aws sso login --profile blossom-dev
 
-# Luego construir fact_transactions:
+# 1. Extraer tablas DOUGH (si no existen aún)
+python3 scripts/extract_dough_to_csv.py --env dev
+
+# 2. Construir fact_transactions (también extrae OLB internamente)
 python3 scripts/build_fact_transactions.py --env dev
-# Output: data/dough/fact_transactions.csv
+
+# Outputs generados:
+#   data/dough/fact_transactions.csv              → 1,413,914 filas (completo)
+#   data/dough/fact_transactions_expenditure.csv  → 740,616 filas (solo gastos, apto Excel)
+#   data/dough/fact_transactions_sample.csv       → 50,000 filas (muestra aleatoria)
 ```
