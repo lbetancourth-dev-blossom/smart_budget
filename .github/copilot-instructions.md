@@ -18,19 +18,17 @@ Repositorio de referencia de documentos: `docs/`
 ## Origen de datos (real)
 
 ```
-S3 bucket:    s3://blossom-analytics-datalake-alpha/datalake/{bronze,silver}/DOUGH/
-AWS profile:  blossom-dev
-Capas:        bronze (raw CDC desde DMS) · silver (limpia, sin metadata DMS) · gold (vacía hoy)
+Dough silver:  s3://blossom-analytics-datalake-dev/datalake/silver/DOUGH/
+OLB silver:    s3://blossom-analytics-datalake-dev/datalake/silver/OLB/
+AWS profile:   blossom-dev
+Capas:         bronze (raw CDC desde DMS) · silver (limpia) · gold (vacía hoy)
 ```
 
-- **Lectura del modelo:** capa silver (no bronze).
-- **Materialización del output DS-ML:** capa gold (a crear) o BlossomAPI.
-- **Entorno actual:** alpha. Volumen mínimo (2 CUs, 14 members, 0 transacciones reales).
-- **Tablas transaccionales (`transaction`, `transactionSplit`, `userCategoryTransaction`, `account`)
-  no están todavía en el lake alpha.** Cuando se incorporen, los pipelines deben asumir el mismo
-  prefijo S3 y la misma estructura medallion.
-
-Para más detalle, ver `docs/data_review.md` §0 y §4.
+- **Tabla central:** `fact_transactions` — unión de OLBSubAccountTransaction + OLBLoanTransaction + externaltransaction.
+- **Script de referencia DE:** `ref_fact_transactions_olb.py` (PySpark → traducido a pandas en `scripts/build_fact_transactions.py`).
+- **Lectura del modelo:** `fact_transactions` (construida desde silver OLB + DOUGH).
+- **Materialización del output DS-ML:** `budget` + `budgetcategory` en Dough DB.
+- **Entorno actual:** dev. 1,413,914 transacciones en `fact_transactions` (rango 2022–2026).
 
 ---
 
@@ -431,18 +429,27 @@ Umbral mínimo para pasar a Fase 1: `acceptance_rate + edit_rate > 60%`
 ❌ Apuntar el código a credenciales de prod sin revisión de PII
 ```
 
+## Convenciones de Git
+
+```
+Ramas:    DATA-{número}        Ej: DATA-1041
+Commits:  DATA-{número}: descripción corta en minúsculas
+          Ej: DATA-1041: construir fact_transactions desde OLB + DOUGH
+PRs:      mismo prefijo que la rama
+```
+
+**Regla:** toda rama y commit debe llevar el nombre del ticket (ej. `DATA-1041`). Sin excepciones.
+
 ---
 
 ## Archivos de referencia en este repo
 
 ```
-README.md                       → Onboarding al repo
-docs/data_review.md             → Estado de bronze/silver/gold + diccionario + ER + gaps
-docs/glosario.md                → Definiciones de términos del proyecto
-docs/PRD_SMART_BUDGET.md        → PRD completo (a copiar desde Drive cuando aplique)
-docs/ARCHITECTURE.md            → Diagrama del pipeline DS-ML (pendiente)
-docs/DECISIONS.md               → Decision Log del Top 12 (pendiente)
-docs/DATA_CONTRACT.md           → Schema JSON del output versionado (pendiente)
-docs/COPY_GUIDELINES.md         → Lineamientos UDAAP para display_label (pendiente)
-scripts/extract_dough_to_csv.py → Extracción S3 alpha → CSV local
+README.md                             → Onboarding al repo
+docs/plan/plan_phase_0.md             → Plan Fase 0 con resultados por step
+docs/plan/phase0_remaining_tasks.md   → Tareas pendientes para producción
+docs/fact_transactions_README.md      → Schema completo de fact_transactions
+docs/glosario.md                      → Definiciones de términos del proyecto
+scripts/extract_dough_to_csv.py       → Extracción S3 DOUGH → CSV local
+scripts/build_fact_transactions.py    → Construye fact_transactions (OLB + DOUGH)
 ```
