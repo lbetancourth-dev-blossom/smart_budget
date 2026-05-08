@@ -109,7 +109,7 @@ data/
   dough/
     bronze/ silver/ gold/
 scripts/
-  extract_dough_to_csv.py
+  extract_datalake_to_csv.py
 ```
 
 ---
@@ -450,6 +450,6 @@ docs/plan/plan_phase_0.md             → Plan Fase 0 con resultados por step
 docs/plan/phase0_remaining_tasks.md   → Tareas pendientes para producción
 docs/fact_transactions_README.md      → Schema completo de fact_transactions
 docs/glosario.md                      → Definiciones de términos del proyecto
-scripts/extract_dough_to_csv.py       → Extracción S3 DOUGH → CSV local
+scripts/extract_datalake_to_csv.py       → Extracción S3 (DOUGH, OLB, SAFE, ...) → CSV local
 scripts/build_fact_transactions.py    → Construye fact_transactions (OLB + DOUGH)
 ```

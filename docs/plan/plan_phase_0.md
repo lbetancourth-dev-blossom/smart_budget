@@ -75,11 +75,15 @@ id, idbudget, idcategory, idcategorygroup, allocatedamount, categoryslug
 
 Extracción de todas las tablas DOUGH desde S3 datalake (dev y alpha) a CSV local.
 
-**Script:** `scripts/extract_dough_to_csv.py`
+**Script:** `scripts/extract_datalake_to_csv.py`
 
 ```bash
-python3 scripts/extract_dough_to_csv.py --env dev
-python3 scripts/extract_dough_to_csv.py --env alpha
+# Ver fuentes disponibles
+python3 scripts/extract_datalake_to_csv.py --list
+
+# Extraer todas las tablas DOUGH (dev)
+python3 scripts/extract_datalake_to_csv.py --source DOUGH --env dev
+python3 scripts/extract_datalake_to_csv.py --source DOUGH --env alpha
 ```
 
 **Resultado:**
@@ -270,7 +274,7 @@ def get_confidence(months_with_data):
 
 ```
 scripts/
-  extract_dough_to_csv.py      ✅ Extrae DOUGH silver → CSV (dev y alpha)
+  extract_datalake_to_csv.py      ✅ Extrae cualquier fuente del datalake (DOUGH, OLB, SAFE...) → CSV
   build_fact_transactions.py   ✅ Construye fact_transactions (--source db | s3)
 
 docs/

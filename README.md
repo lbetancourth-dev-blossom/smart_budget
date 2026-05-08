@@ -102,7 +102,7 @@ smart_budget/
 │   ├── fact_transactions_README.md     Schema y documentación de fact_transactions.
 │   └── glosario.md                     Glosario de términos del proyecto.
 └── scripts/
-    ├── extract_dough_to_csv.py         Extrae tablas DOUGH de S3 → CSV local.
+    ├── extract_datalake_to_csv.py         Extrae cualquier tabla del datalake S3 → CSV local.
     └── build_fact_transactions.py      Construye fact_transactions (OLB + DOUGH).
 ```
 
@@ -118,7 +118,10 @@ aws sso login --profile blossom-dev
 pip install boto3 pandas pyarrow
 
 # 1. Extraer tablas DOUGH (dev o alpha)
-python scripts/extract_dough_to_csv.py --env dev
+python scripts/extract_datalake_to_csv.py --source DOUGH --env dev
+
+# Ver todas las fuentes disponibles en el datalake
+python scripts/extract_datalake_to_csv.py --list
 
 # 2. Construir fact_transactions
 python scripts/build_fact_transactions.py --env dev

@@ -1,161 +1,211 @@
-# Fase 0 — Tareas restantes para implementación completa
+# Fase 0 — Tareas restantes para cerrar el alcance
 
 **Fecha:** 2026-05-08
 **Branch:** `DATA-1041`
 **Documento padre:** [`plan_phase_0.md`](plan_phase_0.md)
-
-> Este documento lista lo que falta para considerar Fase 0 **lista para producción** (pilot CU). Las tareas están agrupadas por área y priorizadas. La sección **A** es bloqueante para cualquier release; las secciones **D-K** se pueden trabajar en paralelo o secuenciar según capacidad del equipo.
-
----
-
-## ✅ Estado actual (lo que ya está en `DATA-1041`)
-
-- [x] **Step 1** — Extracción DOUGH: 30 tablas dev + 23 alpha → `data/dough/*/silver/`
-- [x] **Step 2** — Extracción OLB: 7 tablas (1M+ txns) → `data/olb/dev/silver/`
-- [x] **Step 3** — `fact_transactions.csv`: 1,413,914 filas unificadas (OLB_SUB + OLB_LOAN + DOUGH_EXT)
-- [x] **Modelo de mediana + gating** (`aggregator.calculate_suggestions`)
-- [x] **Confidence** (`high/medium/low`) + display_label
-- [x] **Builders de output** `budget` y `budgetcategory`
-- [x] **T&C gate** (`filter_members_with_tac`)
-
-> **`fact_transactions` construida y verificada.** Steps 4-5 (aplicar modelo sobre fact_transactions y escribir a BD) son el siguiente bloque de trabajo.
+**Tickets:** [DATA-1041](../ticket/DATA-1041.md) (en progreso) · [DATA-1066](../ticket/DATA-1066.md) (TO DO)
 
 ---
 
-## A. Validación y testing  🔥 **Prioridad 1 — bloqueante**
+## Filosofía
 
-- [ ] **A1.** Tests unitarios para `filters.py`:
-   - `get_expense_category_ids` (incluye solo grupo 1, excluye `shouldshow=false`).
-   - `filter_manual_transactions` (ventana N, `deletedat IS NULL`, `idcategory` válido).
-   - `filter_members_with_tac` (member sin aceptación → excluido).
-- [ ] **A2.** Tests unitarios para `aggregator.py`:
-   - `aggregate_monthly_spend` (suma correcta por member × cat × mes).
-   - `calculate_suggestions` (mediana, gating <2 meses, redondeo 2 decimales).
-   - Confidence (`high ≥6`, `medium 3-5`, `low =2`).
-   - Edge: meses con $0, mes en curso excluido, suma neta negativa → clamp a 0.
-- [ ] **A3.** Tests de **multi-tenancy leak**: ningún member ve sugerencias de otro member o CU.
-- [ ] **A4.** Tests de **idempotencia**: re-ejecutar `run_phase0.py` el mismo día no duplica filas en `budget`/`budgetcategory`.
-- [ ] **A5.** **Golden set** sintético en `tests/fixtures/golden_set.csv`: 50-100 members con histórico variado (full data, gating, low confidence, joint accounts) y resultado esperado calculado a mano.
-- [ ] **A6.** Test de integración contra dev real (no test data) — al menos un smoke test que conecte y agregue.
-- [ ] **A7.** Cobertura mínima 80% en `filters.py` + `aggregator.py` (configurar `pytest-cov`).
+Fase 0 es **validación**, no producción. Cuatro tareas concretas, agrupadas y simples — el detalle vive como sub-items.
 
-## B. Persistencia real (de CSV → BD)  🔥 **Prioridad 1**
-
-- [ ] **B1.** Decidir destino: ¿extender `budgetcategory` con columnas DS-ML (`suggested_amount`, `confidence`, `model_version`) o crear tabla nueva `smartBudgetSuggestion`? **Decision Record requerido.**
-- [ ] **B2.** Schema final de `smartBudgetSuggestion` (si se elige nueva): UNIQUE `(id_member, category_id, period_id, model_version)`, índice `(id_client, id_company, id_member, period_id)`.
-- [ ] **B3.** Crear schema de `smartBudgetSuggestionLog` (append-only, captura del loop). Definir punto de inserción (frontend Dough o BlossomAPI).
-- [ ] **B4.** Reemplazar la escritura a CSV por `INSERT ... ON CONFLICT DO UPDATE` (Postgres) o `MERGE` (Redshift).
-- [ ] **B5.** Implementar **snapshot freeze**: si recalculamos para un período ya emitido, insertar fila nueva con timestamp distinto, no actualizar.
-- [ ] **B6.** Conexión: ¿escribimos a Dough DB operativa via BlossomAPI, o a Redshift/gold y un job sincroniza? **Decision Record requerido.**
-
-## C. Robustez del modelo y casos edge
-
-- [ ] **C1.** Integrar `externaltransaction` cuando Backend confirme cómo llega `idcategory` (UNION con `manualtransaction` antes del agregado).
-- [ ] **C2.** Manejo de `joint accounts` (`memberaccount` con `role`): ¿se calcula a nivel member o se reparte? — confirmar con Producto.
-- [ ] **C3.** Excluir transacciones de cuentas con `memberproviderlink.status='inactive'`.
-- [ ] **C4.** Reembolsos / `type='credit'` en `externaltransaction`: restar del gasto del mes; clamp a 0 si la suma neta queda negativa.
-- [ ] **C5.** `issplit=true`: documentar comportamiento esperado (hoy no aparece en dev) y dejar test pendiente para cuando exista.
-- [ ] **C6.** Moneda distinta a USD: skip + log warning (pendiente en aggregator).
-- [ ] **C7.** Time zone: confirmar política — UTC vs `company.configuration.timeZone`. Aplicar consistente en `processdate`.
-- [ ] **C8.** Categorías con un único gasto muy alto: documentar que Fase 0 no excluye outliers; se ataca en Fase 2.
-
-## D. Orquestación (Airflow)
-
-- [ ] **D1.** Diseñar DAG con cadencia (¿mensual día 1, o nocturno?). **Decision Record.**
-- [ ] **D2.** Tasks separadas: `extract → aggregate → calculate → write → notify`.
-- [ ] **D3.** Idempotencia del DAG: marcar `model_version` por corrida y permitir re-ejecución manual.
-- [ ] **D4.** Manejo de fallos: retries con backoff, dead-letter queue.
-- [ ] **D5.** Fallback: si el DAG falla, BlossomAPI sirve la última corrida válida (no devolver vacío).
-- [ ] **D6.** Logging estructurado (`structlog`) con `job_id`, `model_version`, `n_members_processed`, `n_suggestions_emitted`, `started_at`, `finished_at`.
-- [ ] **D7.** Member ID hasheado en logs (PII) — `SHA-256 + SB_LOG_SALT`.
-
-## E. API / Serving (coordinación con BlossomAPI)
-
-- [ ] **E1.** Definir contrato REST con BlossomAPI:
-   - `GET /smart-budget/suggestion?member_id=...&period_id=YYYY-MM`
-   - `POST /smart-budget/decision` (captura del loop).
-- [ ] **E2.** Versionar el JSON contract en `docs/DATA_CONTRACT.md`.
-- [ ] **E3.** SLA de latencia para servir sugerencia (target propuesto: p95 < 200ms).
-- [ ] **E4.** Manejo de errores: 200 con array vacío si no hay sugerencias; 404 solo si member no existe; nunca 500 por falta de data.
-- [ ] **E5.** Idempotencia del POST: mismo `(member, category, period, ts_presented)` → 200 sin duplicar.
-
-## F. Loop de retroalimentación
-
-- [ ] **F1.** Tabla `smartBudgetSuggestionLog` creada y poblada desde el primer release.
-- [ ] **F2.** Captura del frontend Dough: `original_suggested_amount`, `final_user_amount`, `accepted_without_change`, `ts_presented`, `ts_confirmed`.
-- [ ] **F3.** Job mensual de **reconciliación** con gasto real al cierre del período (cruce con `budgetcategory.allocatedamount` y suma real de `manualtransaction`/`externaltransaction`).
-- [ ] **F4.** Métrica `accuracy_delta` calculada en gold y expuesta en dashboard.
-
-## G. Métricas y monitoreo
-
-- [ ] **G1.** Definir queries de las 5 métricas Fase 0:
-   - `acceptance_rate` = aceptadas sin cambio / presentadas
-   - `edit_rate` = modificadas / presentadas
-   - `abandonment_rate` = inician y no completan / inician
-   - `time_to_budget` = ts(setup completo) − ts(inicio flujo)
-   - `coverage` = categorías con sugerencia / categorías del member
-- [ ] **G2.** Dashboard (Looker / Metabase / lo que use Blossom Analytics).
-- [ ] **G3.** Alertas operativas:
-   - Coverage cae bajo X%.
-   - Tasa de error del DAG > Y% en 24h.
-   - Drift en distribución de `confidence` (low se dispara).
-- [ ] **G4.** Reporte semanal automatizado al equipo de Producto durante el piloto.
-
-## H. Compliance y copy
-
-- [ ] **H1.** Revisión legal de los `display_label` con compliance/legal (UDAAP/CFPB).
-- [ ] **H2.** Documento `docs/COPY_GUIDELINES.md` con frases válidas vs inválidas.
-- [ ] **H3.** Disclaimer "no asesoría financiera" — confirmar dónde se muestra (T&C de Dough o en cada pantalla de Smart Budget).
-- [ ] **H4.** Política de retención y borrado (Section 1033) cuando un member desconecta Plaid/Finicity.
-
-## I. Datos en dev → alpha → prod
-
-- [ ] **I1.** Confirmar con Backend Dough cómo llega `idcategory` a `externaltransaction` (runtime via Ntropy, o tabla pendiente de replicar).
-- [ ] **I2.** Solicitar a Data Engineering la replicación de las tablas transaccionales (`account`, `externaltransaction`, `budget`, `budgetcategory`, `memberaccount`, `memberproviderlink`, `period`) al lake **alpha** — coherente con dev.
-- [ ] **I3.** Confirmar existencia de `blossom-analytics-datalake-prod` y plan de acceso.
-- [ ] **I4.** Política de credenciales: ¿se trabaja con `blossom-dev` siempre, o se necesita perfil read-only de prod para validación final?
-
-## J. Documentación pendiente
-
-- [ ] **J1.** `docs/ARCHITECTURE.md` — diagrama del pipeline DS-ML (Mermaid).
-- [ ] **J2.** `docs/DECISIONS.md` — Decision Log con el Top 12 cerrado (de `Fase0_Analisis_y_Workflow_DS-ML.md`).
-- [ ] **J3.** `docs/DATA_CONTRACT.md` — schema JSON versionado del output.
-- [ ] **J4.** `docs/COPY_GUIDELINES.md` — UDAAP-compliant phrasing.
-- [ ] **J5.** `docs/runbook.md` — operación: cómo correr, debug, rollback.
-- [ ] **J6.** Actualizar `README.md` con badges (CI, coverage) cuando estén.
-
-## K. Pre-launch / Pilot CU
-
-- [ ] **K1.** Seleccionar CU piloto (Clarity o Wasatch Peaks) con Producto.
-- [ ] **K2.** Encuestas internas H0-1 a H0-4 a colaboradores Blossom (ver PRD §4) — ¿corren antes o durante el pilot?
-- [ ] **K3.** **Shadow mode:** correr el modelo y persistir sugerencias sin exponerlas al usuario; medir qué habría sugerido vs qué pone manualmente.
-- [ ] **K4.** Plan de rollout: shadow → soft launch (10% members) → general.
-- [ ] **K5.** Plan de rollback: feature flag para apagar Smart Budget sin redeploy.
-- [ ] **K6.** Performance / load testing del endpoint de serving.
-- [ ] **K7.** War room para las primeras 2 semanas post-launch.
+> **Convención:** 1 día = 8h. Las horas son de trabajo activo, sin esperas por terceros. Las estimaciones asumen que se aprovecha el código ya existente (filters, aggregator, builders) y son mecánicas en buena parte.
 
 ---
 
-## Roadmap propuesto (orden recomendado)
+## ✅ Estado actual
 
-```
-Semana 1-2:  A1-A7 (testing) + B1-B6 (persistencia real)        ← bloqueante
-Semana 2-3:  C1-C8 (robustez) + D1-D7 (Airflow)                  ← paralelo
-Semana 3-4:  E1-E5 (API) + F1-F4 (loop) + I1-I4 (data)          ← coordinación cruzada
-Semana 4-5:  G1-G4 (métricas) + H1-H4 (compliance)               ← previo a launch
-Semana 5-6:  J1-J6 (docs) + K1-K7 (pre-launch)                   ← release
+| Step | Estado |
+|------|--------|
+| Step 1 — Extracción DOUGH (30 dev + 23 alpha) | ✅ |
+| Step 2 — Extracción OLB (7 tablas, 1.06M txns) | ✅ |
+| Step 3 — `fact_transactions` (1,413,914 filas) | ✅ |
+| Mediana + gating + confidence + builders + T&C gate | ✅ (sobre schema antiguo, requiere adaptación) |
+
+---
+
+# Tareas para cerrar Fase 0
+
+## 1️⃣ Revisión y validación de datos · **12 h**
+
+> Garantizar que `fact_transactions` está completo y es equivalente al consolidado que Dough muestra al usuario.
+
+**Incluye:**
+
+- **Adaptación al schema** (refactor mecánico de `filters.py`, `monthly_spend.sql`, `run_phase0.py` al schema canónico). Documentar el path `member ← fact_transactions` por `source` (OLB_SUB → `olbsubaccount.idmember`; OLB_LOAN → `olbloan.idmember`; DOUGH_EXT → `memberaccount` vía `idAccount`).
+- **Mapping OLB → Dough** (`defaultCategory` string → `defaultcategory.id`). Identificar gaps con datos reales.
+- **Filtro Posted** (confirmar con DE si `status NULL == Posted` en silver de OLB).
+- **Sanity checks** (`idTransaction` único, totales mensuales, distribución por `source`, decisión sobre OLB_LOAN).
+- **Equivalencia con Dough**: contrastar muestras de `fact_transactions` con lo que Dough muestra en Spending para los mismos members.
+- **Output:** `docs/plan/data_validation_report.md`.
+
+**Fundamento:** si la fuente está mal filtrada o categorizada, todos los métodos del modelo dan resultados incorrectos.
+
+---
+
+## 2️⃣ Implementación del modelo con múltiples métodos · **10 h**
+
+> DATA-1041 lo permite explícitamente: *"Si DS considera que un promedio ponderado u otro método mejora el resultado frente a la mediana, puede adoptarlo"*.
+
+**Incluye:**
+
+- **Refactor del aggregator** a interfaz común: `calculate_suggestion(method='median' | 'weighted_avg_recency' | 'weighted_avg_volume' | 'trimmed_mean')`.
+- **Mediana** (ya implementada — solo encajar en la interfaz).
+- **Weighted average** con dos esquemas: recency-weighted (meses recientes pesan más) y volume-weighted (meses con más txs pesan más).
+- **Trimmed mean** (descarta percentiles extremos antes de promediar).
+- **Winsorización 10/10** aplicable a cualquier método (cumple DATA-1041: *"outliers deben suavizarse, no excluirse"*).
+- **Constantes ajustadas a DATA-1041:** `MIN_MONTHS_FOR_SUGGESTION = 3`, `DEFAULT_WINDOW_N = 3`.
+
+**Fundamento:** sin alternativas no se puede justificar la elección. Implementar 3-4 métodos comparables es la base para Tarea 3.
+
+---
+
+## 3️⃣ Evaluación y elección del mejor método · **10 h**
+
+> Comparar métodos sobre los mismos datos y elegir uno con justificación cuantitativa.
+
+**Incluye:**
+
+- **Métricas de evaluación**:
+  - **Estabilidad temporal** (varianza de la sugerencia mes a mes).
+  - **Sensibilidad a outliers** (delta si quitas el mes más alto).
+  - **Cobertura** (% de members × categorías con sugerencia).
+  - **Plausibilidad** (% dentro del rango histórico observado).
+- **Backtesting sencillo**: para cada método, predecir mes N usando 1..N-1 y comparar contra el real. Métrica: error absoluto medio.
+- **Reporte comparativo**: tabla de métodos × métricas + visualizaciones.
+- **Decisión documentada**: cuál se elige y por qué.
+
+**Fundamento:** entregable explícito de DATA-1041: *"DS documenta el approach elegido y el razonamiento"*.
+
+---
+
+## 4️⃣ Documentación y presentación de resultados · **8 h**
+
+> Trazabilidad, entregables formales del ticket y forma concreta de presentar a stakeholders.
+
+**Incluye:**
+
+- **`docs/MODEL_APPROACH.md`** — método elegido, manejo de outliers, desviaciones del baseline.
+- **`docs/plan/data_validation_report.md`** (output de Tarea 1).
+- **`docs/plan/method_comparison_report.md`** (output de Tarea 3).
+- **Decision Records** breves en `docs/decisions/`:
+  - `001-fact_transactions-as-source.md`
+  - `002-window-and-gating-3-months.md`
+  - `003-method-selection.md`
+- **Cierre de tickets:**
+  - DATA-1066 → mover a "Done" referenciando los archivos del repo.
+  - DATA-1041 → comentario con resultado, archivos generados, pendientes para Fase 1+.
+
+**Fundamento:** sin documentación nadie sabe por qué se eligió X. Entregables formales son obligatorios para cerrar DATA-1041.
+
+---
+
+# 📤 Cómo presentar el resultado de Fase 0
+
+DATA-1041 acepta consumo *"vía API o query directa al warehouse"*. Para una **fase de validación** la combinación más útil es:
+
+| Forma | Para quién | Esfuerzo | Pros |
+|---|---|---|---|
+| **Notebook Jupyter** | DS-ML interno, audit técnico | ~2 h | Combina código, resultado y plots. Ideal para revisión técnica. |
+| **CSVs en `data/dough/test/query/`** | QA, Producto, Backend | ~0 h (ya existe) | Machine-readable, fácil de cargar en Excel/Sheets. |
+| **Endpoint local FastAPI** | Producto, Backend Dough | ~3 h | Permite probar el contrato JSON real sin comprometer BlossomAPI productivo. Es la mejor forma de validar el shape antes de implementar el endpoint real. |
+| **Reporte markdown** (`docs/plan/phase_0_results.md`) | Stakeholders no técnicos | ~2 h | Resumen ejecutivo con cifras clave y screenshots de visualizaciones. |
+
+**Recomendación para Fase 0:** los cuatro formatos en paralelo. Total ~7 h adicionales, ya **incluidos en las tareas T3 y T4** (no es trabajo extra).
+
+### Endpoint local FastAPI (sketch)
+
+```python
+# scripts/serve_local.py — endpoint de validación, NO producción
+from fastapi import FastAPI
+import pandas as pd
+
+app = FastAPI(title="Smart Budget · Fase 0 (local)")
+
+@app.get("/smart-budget/suggestion")
+def get_suggestion(member_id: int, period_id: str):
+    df = pd.read_csv("data/dough/test/query/budgetcategory.csv")
+    rows = df[(df["idmember"] == member_id) & (df["period_id"] == period_id)]
+    return {"suggestions": rows.to_dict(orient="records")}
+
+# Levantar:  uvicorn scripts.serve_local:app --reload --port 8001
 ```
 
-> Tiempos referenciales — ajustar según ancho de banda real del equipo.
+> Sirve el output del pipeline tal cual está en CSV. Permite a Producto y Backend probar el contrato JSON sin que tengamos que persistir en BD operativa.
 
 ---
 
-## Decisiones bloqueantes (Top 5 a resolver YA)
+# 🧪 Datos para test
 
-1. **B1:** ¿`smartBudgetSuggestion` nueva o extender `budgetcategory`?
-2. **B6:** ¿Escribimos a Dough DB via BlossomAPI o a gold/Redshift?
-3. **C2:** ¿Cómo se calcula Smart Budget en joint accounts?
-4. **C7:** ¿Time zone UTC global o el de cada CU?
-5. **K1:** ¿Cuál CU es la piloto?
+Se usan **tres datasets** según el propósito:
 
-Estas cinco bloquean varias tareas posteriores. **Recomendación: workshop de 60 minutos con Producto + Backend Dough esta semana** para cerrarlas.
+| Dataset | Path | Uso | Volumen |
+|---|---|---|---|
+| **Sintético controlado** | `tests/fixtures/golden_set.csv` (a crear) | Tests unitarios del aggregator/filters: casos con resultado esperado calculado a mano. | 50-100 members sintéticos con casos: full data, gating, low confidence, outliers, mes en curso. |
+| **Real dev (fact_transactions)** | `data/dough/fact_transactions.csv` | Validación del modelo, evaluación de métodos, backtesting. **Es el dataset principal de Fase 0.** | 1,413,914 filas reales de OLB + DOUGH dev (rango 2022–2026). |
+| **Sample curado** | `data/dough/test/sample_members.csv` (a generar) | Reporte de Tarea 3 + auditoría manual + endpoint local de demo. | 10-20 members elegidos del real con histórico ≥ 6 meses y ≥ 3 categorías Expense activas. |
+
+**Reglas:**
+
+- **No usar prod en Fase 0** — la validación se hace con dev. Producción se reserva para piloto post-Fase 0.
+- **Tests unitarios solo con fixtures sintéticas** — nunca commitear data real, ni siquiera anonimizada.
+- **El sample curado** se persiste como CSV en el repo (es de dev, no PII real ni volumen comprometedor) para que la presentación al equipo sea reproducible.
+
+---
+
+## Resumen de estimaciones
+
+| Tarea | Horas | Días |
+|---|---|---|
+| 1️⃣ Revisión y validación de datos | 12 h | 1.5 d |
+| 2️⃣ Implementación de múltiples métodos | 10 h | 1.25 d |
+| 3️⃣ Evaluación del mejor método | 10 h | 1.25 d |
+| 4️⃣ Documentación y presentación | 8 h | 1 d |
+| **Total Fase 0** | **40 h** | **5 días-persona** |
+
+> Con 1 persona full-time: **~1 semana calendario** (con buffer del 30% por reuniones/esperas: ~6.5 días).
+> Con 2 personas en paralelo: **~3 días** (T1+T2 paralelos en día 1-2; T3 día 3; T4 día 4).
+
+---
+
+## Roadmap recomendado
+
+```
+Día 1-2:    Tarea 1 (validación de datos)
+            └── en paralelo: Tarea 2 (multi-método) si hay 2 personas
+Día 3:      Tarea 3 (evaluación de métodos)
+Día 4:      Tarea 4 (documentación + presentación + cierre tickets)
+Día 5:      Buffer / revisión con stakeholders / endpoint local en demo
+```
+
+---
+
+## Decisiones bloqueantes (Top 5)
+
+Workshop de 30 min con DE + Backend Dough + Producto:
+
+1. **Tarea 1** — ¿Path canónico `member ← fact_transactions` por `source`?
+2. **Tarea 1** — ¿`status NULL == Posted` en silver de OLB?
+3. **Tarea 1** — ¿OLB_LOAN se considera gasto?
+4. **Tarea 1** — ¿"subcategory" en DATA-1041 = `defaultcategory` actual?
+5. **Tarea 1** — ¿Time zone UTC o por CU?
+
+---
+
+## 📌 Anexo — Out of scope para Fase 0
+
+Tareas registradas que **NO se ejecutan en Fase 0** y se reactivan en Fase 1 o launch real:
+
+- DAG de Airflow productivo
+- API REST en BlossomAPI productivo (`GET /smart-budget/suggestion`, `POST /smart-budget/decision`)
+- Dashboard productivo (Looker / Metabase)
+- Compliance review formal con legal (UDAAP / CFPB)
+- Plan de rollout / shadow mode / soft launch / rollback con feature flag
+- Performance / load testing
+- Tests automatizados con cobertura ≥ 80%
+- Loop de retroalimentación (`smartBudgetSuggestionLog`) — útil dejar el schema definido, no implementar
+- Encuestas H0-1 a H0-4 — coordinar con Producto si se requiere
+- Persistencia en BD operativa (`UPSERT` real)
+- Acceso a datalake prod / replicación a alpha
