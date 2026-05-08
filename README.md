@@ -6,10 +6,67 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 
 ## Estado actual
 
-- **Fase 0 (El Reflejo):** en discovery / diseño técnico.
+- **Fase 0 (El Reflejo):** en desarrollo — rama `DATA-1041`.
 - Modelo: mediana del gasto histórico mensual por `member × category`.
-- Lectura desde data lake **alpha** de Blossom (`s3://blossom-analytics-datalake-alpha/datalake/{bronze,silver}/DOUGH/`).
-- Escritura propuesta en BlossomAPI / capa gold (pendiente de creación).
+- Pipeline implementado: `scripts/run_phase0.py` (filtros → agregación → mediana → output).
+- Datos de test disponibles en `data/dough/test/` (5 members, 6 meses de historial).
+
+## Catálogo de categorías
+
+Las categorías provienen de la tabla `defaultcategory` y están organizadas en 4 grupos.
+Smart Budget **solo opera sobre el Grupo 1 (Expenses)**.
+
+### Grupo 1 — Expenses ✅ (usadas por Smart Budget)
+
+| ID | Categoría |
+|---|---|
+| 1 | Auto & Transport |
+| 2 | Bills & Utilities |
+| 3 | Business Services |
+| 4 | Education |
+| 5 | Entertainment & Leisure |
+| 6 | Financial Services |
+| 7 | Food & Dining |
+| 8 | Groceries |
+| 9 | Gifts & Donations |
+| 10 | Health & Fitness |
+| 11 | Home & Rent |
+| 12 | Kids & Family |
+| 13 | Personal Care & Beauty |
+| 14 | Pets |
+| 15 | Shopping |
+| 16 | Subscriptions |
+| 17 | Taxes & Fees |
+| 18 | Travel & Trips |
+| 27 | Gas |
+| 28 | Transfers & payments |
+| 29 | Transfers & Payments |
+
+### Grupo 2 — Incomes ❌ (excluidas del modelo)
+
+| ID | Categoría |
+|---|---|
+| 19 | Business Income |
+| 20 | Income |
+
+### Grupo 3 — Excluded ❌ (excluidas del modelo)
+
+| ID | Categoría |
+|---|---|
+| 21 | Internal Transfers |
+| 22 | Credit Card Payment |
+| 23 | Loan Payment |
+| 24 | ATM & Cash |
+| 25 | Savings & Investments |
+
+### Grupo 4 — Other
+
+| ID | Categoría | Visible |
+|---|---|---|
+| 26 | Other | No (`shouldshow = false`) |
+
+> **Nota:** El catálogo es plano — no hay subcategorías en el schema actual de Dough.
+> Las CUs con RICH (Ntropy) tienen categorías custom adicionales mapeadas en `companyntropycategory`.
 
 ## Estructura del repo
 
