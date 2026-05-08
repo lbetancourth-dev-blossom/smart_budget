@@ -164,6 +164,94 @@ Crear fixtures en `tests/fixtures/golden_set.csv` con:
 
 ---
 
+---
+
+## Resultado Step 2 — Ejecución en datos de test
+
+**Comando ejecutado:**
+```bash
+python3 scripts/run_phase0.py --period 2026-05 --n-months 6
+```
+
+**Parámetros:**
+- Período objetivo: `2026-05` (mes en curso, excluido del cálculo)
+- Ventana histórica: 6 meses completos (`2025-11` → `2026-04`)
+- Members en scope: 5 (con T&C aceptados y cuentas activas)
+- Model version: `fase0-v1`
+
+**Resultado:**
+```
+Members procesados : 4   ← 1 sin transacciones categorizadas en la ventana
+Sugerencias activas: 20
+Sin sugerencia     : 4   ← no pasaron el gating (< 2 meses con data)
+
+Member 2   → $840.27   (5 categorías, todas high confidence)
+Member 7   → $414.84   (5 categorías, 1 low = solo 2 meses)
+Member 9   → $528.19   (5 categorías, todas high)
+Member 18  → $1,435.01 (5 categorías, todas high)
+```
+
+### Por qué se generan 3 archivos en `data/dough/test/query/`
+
+El pipeline tiene **3 niveles de resultado** que corresponden a 3 responsabilidades distintas:
+
+#### 1. `monthly_spend_YYYY-MM.csv` — Tabla intermedia de agregación
+> **Qué es:** El gasto real sumado por member × categoría × mes calendario.
+
+```
+idmember | category_id | year_month | monthly_amount
+       2 |           1 |    2025-11 |         137.73
+       2 |           1 |    2025-12 |          40.91
+       ...
+```
+
+Es la materia prima del modelo. Una fila por cada mes en que un member tuvo gasto
+en una categoría. Se guarda porque es útil para:
+- **Auditar** el cálculo de la mediana (ver los datos que la generaron)
+- **Debugging** de casos edge (meses con $0, reembolsos, etc.)
+- **Futuras fases** que necesiten tendencias o estacionalidad
+
+#### 2. `budget.csv` — Presupuesto total por member
+> **Qué es:** Una fila por member con el total sugerido para el período.
+
+```
+id | idmember | idperiod | name                 | amountlimit | model_version
+ 9 |        2 |        1 | Smart Budget 2026-05 |      840.27 | fase0-v1
+10 |        7 |        1 | Smart Budget 2026-05 |      414.84 | fase0-v1
+```
+
+Es el **encabezado del presupuesto** que el usuario ve en Dough UI. El `amountlimit`
+es la suma de todos los `allocatedamount` de sus categorías sugeridas. Separado de
+`budgetcategory` porque el usuario puede editar el total independientemente de las
+categorías individuales.
+
+#### 3. `budgetcategory.csv` — Sugerencia por categoría
+> **Qué es:** Una fila por cada categoría sugerida, vinculada al budget del member.
+
+```
+id | idbudget | idcategory | allocatedamount | confidence | display_label                  | period_range
+41 |        9 |          1 |          115.87 |       high | Basado en tus últimos 6 meses  | 2025-11 ~ 2026-04
+42 |        9 |          2 |          127.81 |       high | Basado en tus últimos 6 meses  | 2025-11 ~ 2026-04
+```
+
+Es el **detalle por categoría** que Dough UI muestra al usuario para que ajuste cada
+línea. Separado de `budget` porque:
+- El usuario puede aceptar unas categorías y modificar otras
+- El `smartBudgetSuggestionLog` necesita rastrear decisiones a nivel de categoría
+- La API `/smart-budget/suggestion` devuelve un array (una entrada por categoría)
+
+#### Relación entre los 3 archivos
+
+```
+monthly_spend  →  INPUT del modelo
+                      ↓  mediana por (member, category)
+budgetcategory →  OUTPUT atómico  (una sugerencia por categoría)
+                      ↓  SUM(allocatedamount) GROUP BY member
+budget         →  OUTPUT agregado (total del presupuesto del member)
+```
+
+---
+
 ## Gaps a resolver antes de codear
 
 | Gap | Acción |
