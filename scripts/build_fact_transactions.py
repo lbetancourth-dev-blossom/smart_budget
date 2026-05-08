@@ -404,7 +404,7 @@ def save_outputs(fact: pd.DataFrame):
     print(f"  ✅ fact_transactions_expenditure.csv → {len(exp):,} filas (solo gastos, apto Excel)")
 
     # 3. Muestra 50k
-    sample = fact.sample(n=min(50_000, len(fact)), random_state=42)
+    sample = fact.sample(n=min(10_000, len(fact)), random_state=42)
     out_s = OUT_DIR / "fact_transactions_sample.csv"
     sample.to_csv(out_s, **kw)
     print(f"  ✅ fact_transactions_sample.csv   → {len(sample):,} filas (muestra aleatoria)")
