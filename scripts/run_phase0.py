@@ -94,6 +94,7 @@ def main() -> None:
 
     # ── Agregación mensual ─────────────────────────────────────────────────────
     monthly = aggregate_monthly_spend(filtered)
+    save(monthly, f"monthly_spend_{period_id}")
 
     # ── Modelo de mediana + gating ─────────────────────────────────────────────
     results = calculate_suggestions(monthly, period_id=period_id, n_months=n_months)
