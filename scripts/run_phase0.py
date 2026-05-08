@@ -40,7 +40,8 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "dough", "test")
+DATA_DIR       = os.path.join(os.path.dirname(__file__), "..", "data", "dough", "test")
+QUERY_DIR      = os.path.join(DATA_DIR, "query")
 
 
 def load(name: str) -> pd.DataFrame:
@@ -48,9 +49,10 @@ def load(name: str) -> pd.DataFrame:
 
 
 def save(df: pd.DataFrame, name: str) -> None:
-    path = os.path.join(DATA_DIR, f"{name}.csv")
+    os.makedirs(QUERY_DIR, exist_ok=True)
+    path = os.path.join(QUERY_DIR, f"{name}.csv")
     df.to_csv(path, index=False)
-    log.info("saved", file=f"{name}.csv", rows=len(df))
+    log.info("saved", file=f"test/query/{name}.csv", rows=len(df))
 
 
 def main() -> None:
@@ -136,7 +138,7 @@ def main() -> None:
                   f"  [{cat['confidence']}]  {cat['display_label']}")
         print()
 
-    print(f"  Resultados guardados en: {os.path.abspath(DATA_DIR)}/")
+    print(f"  Resultados guardados en: {os.path.abspath(QUERY_DIR)}/")
     print("="*60)
 
 
