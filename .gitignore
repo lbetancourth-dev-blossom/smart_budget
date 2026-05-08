@@ -1,8 +1,62 @@
-# Raw data extracts (no subir datos al repo)
-data/dough/
+# ── Data extracts (nunca al repo) ─────────────────────────────────────────────
+data/
+!data/.gitkeep
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
 .env
+.env.*
+!.env.example
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── AWS / credenciales ────────────────────────────────────────────────────────
+.aws/
+*.pem
+*.key
+credentials
+aws-credentials*
+
+# ── Archivos de datos grandes ─────────────────────────────────────────────────
+*.parquet
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.json.gz
+*.ndjson
+*.avro
+
+# ── Logs y temporales ─────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+*.cache
+.DS_Store
+Thumbs.db
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── dbt (si se agrega en el futuro) ──────────────────────────────────────────
+target/
+dbt_packages/
+logs/
