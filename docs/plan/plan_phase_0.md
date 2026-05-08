@@ -130,49 +130,84 @@ Extracción de las 7 tablas OLB necesarias para construir `fact_transactions` de
 
 ### Step 3 — Construcción de fact_transactions ✅ COMPLETADO
 
-Unión de las tres fuentes en un esquema canónico de 31 columnas, siguiendo la lógica PySpark de `ref_fact_transactions_olb.py` (traducida a pandas).
+Unión de las tres fuentes en un esquema canónico de **32 columnas** (idéntico a la tabla `public.fact_transactions` de la DB consolidada), siguiendo la lógica PySpark de `ref_fact_transactions_olb.py` (traducida a pandas).
 
 **Script:** `scripts/build_fact_transactions.py`
 
+Dos modos disponibles:
+
 ```bash
-python3 scripts/build_fact_transactions.py --env dev
+# Modo DB (recomendado) — lee directo de blossom-dough-consolidated-dev
+python3 scripts/build_fact_transactions.py --source db --db-user lbetancourth --db-pass <password>
+
+# Modo S3 (offline fallback) — lee CSVs locales de OLB + DOUGH
+python3 scripts/build_fact_transactions.py --source s3
 ```
 
-**Output:** `data/dough/fact_transactions.csv`
+**Output:** `data/dough/`
 
-**Resultado:**
+| Archivo | Filas | Descripción |
+|---------|-------|-------------|
+| `fact_transactions.csv` | **1,413,948** | Completo (supera límite Excel) |
+| `fact_transactions_expenditure.csv` | **722,370** | Solo gastos — apto para Excel |
+| `fact_transactions_sample.csv` | **50,000** | Muestra aleatoria |
+
+**Resultado (--source db):**
 
 | Métrica | Valor |
 |---------|-------|
-| Total filas | **1,413,914** |
-| Columnas | 31 |
-| Rango de fechas | `2022-06-03` → `2026-05-08` |
+| Total filas | **1,413,948** |
+| Columnas | **32** (schema canónico DB) |
+| Rango de fechas | `2016-04-17` → `2026-05-08` |
 
-Desglose por fuente:
+Desglose por prefijo `idtransaction`:
 
 | Fuente | Filas | Descripción |
 |--------|-------|-------------|
-| `OLB_SUB` | 1,063,606 | OLBSubAccountTransaction (excluye HOLD) |
-| `OLB_LOAN` | 350,293 | OLBLoanTransaction (excluye HOLD) |
-| `DOUGH_EXT` | 15 | externaltransaction (Plaid/Finicity) |
-| **Total** | **1,413,914** | Post deduplicación por `idTransaction` |
+| `SUB_*` | 1,063,570 | OLBSubAccountTransaction |
+| `LOAN_*` | 350,293 | OLBLoanTransaction |
+| `MANT_*` | 85 | Manual transaction (solo en DB, no en S3) |
+| **Total** | **1,413,948** | |
 
 Distribución por tipo:
 
-| incomeExpenditure | Filas | % |
-|-------------------|-------|---|
-| `expenditure` | 740,616 | 52.4% |
-| `income` | 673,298 | 47.6% |
+| `incomeexpenditure` | Filas | % |
+|---------------------|-------|---|
+| `expenditure` | 722,370 | 51.1% |
+| `income` | 691,578 | 48.9% |
 
-> **Nota sobre enriquecimiento:** Las columnas `enrichment*` son `NULL` en local — los datos de DynamoDB no están en S3 silver. Solo 19 filas tienen `status` no nulo (ninguna es `HOLD`). El 99.9% de filas tiene `defaultCategory` asignada (vía `olbtransactioncategory`).
+**Schema canónico — 32 columnas (lowercase, orden exacto DB):**
 
-**Esquema de idTransaction por fuente:**
+```
+idtransaction, idclient, idcompany, idaccount, idsubaccount, date,
+amount, currency, originalamount, timestamp, incomeexpenditure, status,
+description, balance, isenriched, enrichment, enrichmentlogo, enrichmentname,
+enrichmentlocation, enrichmenturl, defaultcategory, idolbtransactioninfo,
+transactioncomplete, note, checknumber, issplit, splitedtransactions,
+createdat, deletedat, doughid, firstuploaded, lastuploaded
+```
 
-| Fuente | Formato `idTransaction` | Formato `idAccount` | Formato `idSubAccount` |
+Columnas siempre null (pero preservadas para compatibilidad con schema DB):
+- `originalamount` — monto en moneda original (sin implementar)
+- `splitedtransactions` — JSON de sub-transacciones (Fase 0: sin splits)
+
+**Formatos de fecha:**
+
+| Columna | Formato |
+|---------|---------|
+| `date` | `YYYY-MM-DD` |
+| `timestamp`, `createdat`, `deletedat`, `lastuploaded` | `YYYY-MM-DD HH:MM:SS.000` |
+| `firstuploaded` | `YYYY-MM-DD HH:MM:SS.000 -0500` |
+
+**Esquema de `idtransaction` por fuente:**
+
+| Fuente | Formato `idtransaction` | Formato `idaccount` | Formato `idsubaccount` |
 |--------|------------------------|--------------------|-----------------------|
-| OLB SUB | `SUB{sat.id}` | `INT{idolbaccountnumber}` | `SUB{idsubaccount}` |
-| OLB LOAN | `LOAN{lt.id}` | `INT{idolbaccountnumber}` | `LOAN{idolbloan}` |
-| DOUGH EXT | `EXT{ext.id}` | `EXT{idaccount}` | `NULL` |
+| OLB SUB | `SUB{id}` | `INT{idolbaccountnumber}` | `SUB{idsubaccount}` |
+| OLB LOAN | `LOAN{id}` | `INT{idolbaccountnumber}` | `LOAN{idolbloan}` |
+| Manual | `MANT{id}` | — | — |
+
+> **Nota:** Las columnas `enrichment*` son `NULL` en local — los datos de enriquecimiento vienen de DynamoDB, no del datalake S3 silver.
 
 ---
 
@@ -236,24 +271,20 @@ def get_confidence(months_with_data):
 ```
 scripts/
   extract_dough_to_csv.py      ✅ Extrae DOUGH silver → CSV (dev y alpha)
-  build_fact_transactions.py   ✅ Construye fact_transactions desde OLB + DOUGH
-  run_phase0.py                🔄 Orquestador (actualizar para usar fact_transactions)
-
-src/smart_budget/
-  filters.py                   🔄 Filtros (actualizar para fact_transactions schema)
-  aggregator.py                ✅ Modelo mediana, gating, confidence
-  queries/monthly_spend.sql    🔄 Query (actualizar fuente a fact_transactions)
+  build_fact_transactions.py   ✅ Construye fact_transactions (--source db | s3)
 
 docs/
   plan/
     plan_phase_0.md            ✅ Este archivo
     phase0_remaining_tasks.md  ✅ Tareas pendientes para producción
-  fact_transactions_README.md  ✅ Documentación del esquema canónico
+  fact_transactions_README.md  ✅ Documentación del esquema canónico (32 cols)
   glosario.md                  ✅ Glosario de términos
 
 data/ (gitignored)
-  dough/dev/silver/*.csv       ✅ 30 tablas DOUGH dev
-  dough/alpha/silver/*.csv     ✅ 23 tablas DOUGH alpha
-  dough/fact_transactions.csv  ✅ 1,413,914 filas (OLB_SUB + OLB_LOAN + DOUGH_EXT)
-  olb/dev/silver/*.csv         ✅ 7 tablas OLB dev
+  dough/dev/silver/*.csv                    ✅ 30 tablas DOUGH dev
+  dough/alpha/silver/*.csv                  ✅ 23 tablas DOUGH alpha
+  dough/fact_transactions.csv               ✅ 1,413,948 filas, 32 cols
+  dough/fact_transactions_expenditure.csv   ✅ 722,370 filas (solo gastos, apto Excel)
+  dough/fact_transactions_sample.csv        ✅ 50,000 filas (muestra)
+  olb/dev/silver/*.csv                      ✅ 7 tablas OLB dev
 ```
