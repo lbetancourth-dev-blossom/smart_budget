@@ -1,31 +1,47 @@
 """
 build_fact_transactions.py
 ==========================
-Construye la tabla fact_transactions unificando:
-  - Transacciones OLB internas (SubAccount + Loan) desde S3 silver
-  - Transacciones externas Dough (externaltransaction) desde S3 silver
+Construye la tabla fact_transactions. Soporta dos modos:
 
-Sigue la lógica del script de referencia del equipo de DE:
-  Downloads/ref_fact_transactions_olb.py
+  --source db   (recomendado) Lee directo de blossom-dough-consolidated-dev.
+                Garantiza datos idénticos a los del equipo de DE.
+                Requiere variables de entorno o argumentos de conexión.
+
+  --source s3   Construye desde S3 silver (OLB + DOUGH). Útil offline.
+                Sigue la lógica de ref_fact_transactions_olb.py (PySpark → pandas).
 
 Output: data/dough/fact_transactions.csv
+        data/dough/fact_transactions_expenditure.csv  (solo gastos, apto Excel)
+        data/dough/fact_transactions_sample.csv       (50k muestra aleatoria)
 
 Uso:
-    python3 scripts/build_fact_transactions.py
-    python3 scripts/build_fact_transactions.py --env alpha
+    # Fuente DB (recomendado):
+    python3 scripts/build_fact_transactions.py --source db
+
+    # Fuente S3:
+    python3 scripts/build_fact_transactions.py --source s3 --env dev
+
+    # Credenciales DB via env vars:
+    export DB_HOST=...  DB_NAME=blossom-dough-consolidated-dev  DB_USER=...  DB_PASS=...
 """
 
 import argparse
+import csv
 import os
 import pandas as pd
 from pathlib import Path
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-ROOT     = Path(__file__).resolve().parent.parent
-OLB_DIR  = ROOT / "data" / "olb" / "dev" / "silver"
+ROOT            = Path(__file__).resolve().parent.parent
+OLB_DIR         = ROOT / "data" / "olb" / "dev" / "silver"
 DOUGH_DIR_DEV   = ROOT / "data" / "dough" / "dev"  / "silver"
 DOUGH_DIR_ALPHA = ROOT / "data" / "dough" / "alpha" / "silver"
-OUT_DIR  = ROOT / "data" / "dough"
+OUT_DIR         = ROOT / "data" / "dough"
+
+# ── DB defaults (override via env vars or CLI args) ───────────────────────────
+DB_HOST_DEFAULT = "blossomdoughconsolidatedrdsencrypt-dev-cluster.cluster-csls5euwsof9.us-east-2.rds.amazonaws.com"
+DB_NAME_DEFAULT = "blossom-dough-consolidated-dev"
+DB_PORT_DEFAULT = 5432
 
 
 def load(folder: Path, table: str) -> pd.DataFrame:
@@ -288,62 +304,160 @@ def build_external_transactions(dough: Path) -> pd.DataFrame:
     return result
 
 
-def main(env: str = "dev"):
-    dough_dir = DOUGH_DIR_DEV if env == "dev" else DOUGH_DIR_ALPHA
+def build_from_db(host: str, dbname: str, user: str, password: str, port: int = 5432) -> pd.DataFrame:
+    """
+    Lee fact_transactions directamente de blossom-dough-consolidated-dev.
+    Garantiza datos idénticos a los del equipo de DE.
+    """
+    try:
+        import psycopg2
+    except ImportError:
+        print("❌ psycopg2 no instalado. Ejecuta: pip3 install psycopg2-binary")
+        raise
+
+    print(f"→ Conectando a {dbname} en {host}...")
+    conn = psycopg2.connect(
+        host=host, dbname=dbname, user=user, password=password,
+        port=port, connect_timeout=15
+    )
+    print("  ✅ Conexión exitosa")
+
+    print("  Descargando fact_transactions...", flush=True)
+    df = pd.read_sql("SELECT * FROM public.fact_transactions ORDER BY date", conn)
+    conn.close()
+
+    print(f"  ✅ {len(df):,} filas, {len(df.columns)} columnas")
+    return df
+
+
+def save_outputs(fact: pd.DataFrame):
+    """Guarda CSV completo + versión expenditure + muestra."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Columnas 100% null → eliminar
+    all_null = [c for c in fact.columns if fact[c].isna().all()]
+    if all_null:
+        print(f"  Eliminando columnas 100% null: {all_null}")
+        fact = fact.drop(columns=all_null)
+
+    # Limpiar comillas en description para evitar parsing issues
+    if "description" in fact.columns:
+        fact["description"] = fact["description"].astype(str).str.replace('"', "'", regex=False).str.strip()
+
+    kw = dict(index=False, quoting=csv.QUOTE_MINIMAL, encoding="utf-8-sig")
+
+    # 1. Completo
+    out = OUT_DIR / "fact_transactions.csv"
+    fact.to_csv(out, **kw)
+    print(f"  ✅ fact_transactions.csv          → {len(fact):,} filas")
+
+    # Columnas esenciales para versiones filtradas
+    essential = [c for c in [
+        "idtransaction","idcompany","idaccount","idsubaccount",
+        "amount","date","incomeexpenditure","status",
+        "description","defaultcategory","isenriched","enrichmentname",
+        "createdat","deletedat",
+        # fallback camelCase (fuente S3)
+        "idTransaction","idCompany","idAccount","idSubAccount",
+        "incomeExpenditure","defaultCategory","isEnriched","enrichmentName",
+        "createdAt","deletedAt",
+    ] if c in fact.columns]
+    # deduplica manteniendo orden
+    seen, cols = set(), []
+    for c in essential:
+        if c not in seen:
+            seen.add(c); cols.append(c)
+
+    exp_col = next((c for c in ["incomeexpenditure","incomeExpenditure"] if c in fact.columns), None)
+    if exp_col:
+        exp = fact[fact[exp_col] == "expenditure"][cols]
+        out_exp = OUT_DIR / "fact_transactions_expenditure.csv"
+        exp.to_csv(out_exp, **kw)
+        print(f"  ✅ fact_transactions_expenditure.csv → {len(exp):,} filas (solo gastos, apto Excel)")
+
+    sample = fact[cols].sample(n=min(50_000, len(fact)), random_state=42)
+    out_s = OUT_DIR / "fact_transactions_sample.csv"
+    sample.to_csv(out_s, **kw)
+    print(f"  ✅ fact_transactions_sample.csv   → {len(sample):,} filas (muestra aleatoria)")
+
+
+def main(source: str = "db", env: str = "dev",
+         db_host: str = None, db_name: str = None,
+         db_user: str = None, db_pass: str = None, db_port: int = 5432):
 
     print(f"\n{'='*60}")
-    print(f"  build_fact_transactions — env={env}")
+    print(f"  build_fact_transactions — source={source}")
     print(f"{'='*60}\n")
 
-    parts = []
+    if source == "db":
+        host  = db_host or os.environ.get("DB_HOST", DB_HOST_DEFAULT)
+        name  = db_name or os.environ.get("DB_NAME", DB_NAME_DEFAULT)
+        user  = db_user or os.environ.get("DB_USER", "")
+        pwd   = db_pass or os.environ.get("DB_PASS", "")
+        port  = db_port
 
-    # 1. OLB SubAccount
-    sub = build_sub_transactions(OLB_DIR)
-    if not sub.empty:
-        parts.append(sub)
+        if not user or not pwd:
+            print("❌ Credenciales DB requeridas. Usa --db-user / --db-pass o env vars DB_USER / DB_PASS")
+            return
 
-    # 2. OLB Loan
-    loan = build_loan_transactions(OLB_DIR)
-    if not loan.empty:
-        parts.append(loan)
+        fact = build_from_db(host, name, user, pwd, port)
 
-    # 3. Dough External
-    ext = build_external_transactions(dough_dir)
-    if not ext.empty:
-        parts.append(ext)
+    else:  # source == "s3"
+        dough_dir = DOUGH_DIR_DEV if env == "dev" else DOUGH_DIR_ALPHA
+        parts = []
 
-    if not parts:
-        print("\n❌ Sin datos — abortando")
-        return
+        sub = build_sub_transactions(OLB_DIR)
+        if not sub.empty: parts.append(sub)
 
-    print("\n→ Uniendo todas las fuentes...")
-    fact = pd.concat(parts, ignore_index=True)
+        loan = build_loan_transactions(OLB_DIR)
+        if not loan.empty: parts.append(loan)
 
-    # Eliminar duplicados por idTransaction
-    before = len(fact)
-    fact = fact.drop_duplicates(subset=["idTransaction"])
-    print(f"  Deduplicación: {before:,} → {len(fact):,} (eliminados {before - len(fact):,})")
+        ext = build_external_transactions(dough_dir)
+        if not ext.empty: parts.append(ext)
 
-    # Guardar
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / "fact_transactions.csv"
-    fact.to_csv(out_path, index=False)
+        if not parts:
+            print("❌ Sin datos — abortando")
+            return
+
+        print("\n→ Uniendo fuentes S3...")
+        fact = pd.concat(parts, ignore_index=True)
+        before = len(fact)
+        fact = fact.drop_duplicates(subset=["idTransaction"])
+        print(f"  Deduplicación: {before:,} → {len(fact):,}")
+
+    print(f"\n→ Guardando outputs...")
+    save_outputs(fact)
+
+    date_col_name = next((c for c in ["date"] if c in fact.columns), None)
+    if date_col_name:
+        dates = pd.to_datetime(fact[date_col_name], errors="coerce")
+        print(f"\n  Rango fechas : {dates.min().date()} → {dates.max().date()}")
+
+    src_col = next((c for c in ["source"] if c in fact.columns), None)
+    if src_col:
+        print("  Fuentes:")
+        for src, grp in fact.groupby(src_col):
+            print(f"    {src:20s} → {len(grp):,}")
 
     print(f"\n{'='*60}")
-    print(f"✅ fact_transactions.csv guardado en: {out_path}")
-    print(f"   Total filas   : {len(fact):,}")
-    print(f"   Fuentes:")
-    for src, grp in fact.groupby("source"):
-        print(f"     {src:20s} → {len(grp):,} filas")
-    print(f"   Columnas      : {len(fact.columns)}")
-    date_col = pd.to_datetime(fact["date"], errors="coerce")
-    print(f"   Rango fechas  : {date_col.min().date()} → {date_col.max().date()}")
+    print(f"✅ Completado — {len(fact):,} filas totales")
     print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build fact_transactions.csv from OLB + DOUGH sources")
+    parser = argparse.ArgumentParser(description="Build fact_transactions.csv")
+    parser.add_argument("--source", default="db", choices=["db", "s3"],
+                        help="Fuente: 'db' = Dough consolidated DB (recomendado), 's3' = S3 silver")
     parser.add_argument("--env", default="dev", choices=["dev", "alpha"],
-                        help="Environment to use for DOUGH external transactions")
+                        help="Entorno S3 (solo aplica con --source s3)")
+    parser.add_argument("--db-host", default=None, help="DB host (default: dev cluster)")
+    parser.add_argument("--db-name", default=None, help="DB name (default: blossom-dough-consolidated-dev)")
+    parser.add_argument("--db-user", default=None, help="DB user (o env var DB_USER)")
+    parser.add_argument("--db-pass", default=None, help="DB password (o env var DB_PASS)")
+    parser.add_argument("--db-port", type=int, default=5432)
     args = parser.parse_args()
-    main(args.env)
+    main(
+        source=args.source, env=args.env,
+        db_host=args.db_host, db_name=args.db_name,
+        db_user=args.db_user, db_pass=args.db_pass, db_port=args.db_port,
+    )
