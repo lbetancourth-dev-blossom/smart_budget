@@ -1,0 +1,8 @@
+# Raw data extracts (no subir datos al repo)
+data/dough/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
