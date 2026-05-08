@@ -331,51 +331,80 @@ def build_from_db(host: str, dbname: str, user: str, password: str, port: int = 
 
 
 def save_outputs(fact: pd.DataFrame):
-    """Guarda CSV completo + versión expenditure + muestra."""
+    """Guarda CSV completo + versión expenditure + muestra, con schema idéntico a la DB."""
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Columnas 100% null → eliminar
-    all_null = [c for c in fact.columns if fact[c].isna().all()]
-    if all_null:
-        print(f"  Eliminando columnas 100% null: {all_null}")
-        fact = fact.drop(columns=all_null)
+    # ── Columnas canónicas en el orden exacto de la DB ────────────────────────
+    CANONICAL_COLS = [
+        "idtransaction", "idclient", "idcompany", "idaccount", "idsubaccount",
+        "date", "amount", "currency", "originalamount", "timestamp",
+        "incomeexpenditure", "status", "description", "balance", "isenriched",
+        "enrichment", "enrichmentlogo", "enrichmentname", "enrichmentlocation",
+        "enrichmenturl", "defaultcategory", "idolbtransactioninfo",
+        "transactioncomplete", "note", "checknumber", "issplit",
+        "splitedtransactions", "createdat", "deletedat", "doughid",
+        "firstuploaded", "lastuploaded",
+    ]
 
-    # Limpiar comillas en description para evitar parsing issues
-    if "description" in fact.columns:
-        fact["description"] = fact["description"].astype(str).str.replace('"', "'", regex=False).str.strip()
+    # Normalizar nombres de columna a lowercase
+    fact.columns = [c.lower() for c in fact.columns]
+
+    # Agregar columnas faltantes como null
+    for col in CANONICAL_COLS:
+        if col not in fact.columns:
+            fact[col] = None
+
+    fact = fact[CANONICAL_COLS].copy()
+
+    # ── Formatear fechas al formato de la DB: YYYY-MM-DD HH:MM:SS.000 ─────────
+    def fmt_ts(col, tz_offset=None):
+        """Formatea columna timestamp. tz_offset: ej ' -0500' para firstuploaded."""
+        s = pd.to_datetime(fact[col], errors="coerce", utc=True)
+        if tz_offset:
+            # Convertir a -05:00 y formatear como '2026-05-08 12:00:00.000 -0500'
+            s = s.dt.tz_convert("America/Chicago")
+            fact[col] = s.dt.strftime("%Y-%m-%d %H:%M:%S.000 -0500")
+        else:
+            fact[col] = s.dt.strftime("%Y-%m-%d %H:%M:%S.000")
+        # Donde era NaT → vacío
+        fact[col] = fact[col].where(s.notna(), other=None)
+
+    fmt_ts("timestamp")
+    fmt_ts("createdat")
+    fmt_ts("deletedat")
+    fmt_ts("lastuploaded")
+    fmt_ts("firstuploaded", tz_offset=True)
+
+    # date → solo YYYY-MM-DD
+    fact["date"] = pd.to_datetime(fact["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    # checknumber: entero donde no sea null, sino vacío
+    fact["checknumber"] = pd.to_numeric(fact["checknumber"], errors="coerce").astype("Int64")
+
+    # amount / balance / originalamount → 2 decimales
+    for col in ["amount", "balance", "originalamount"]:
+        fact[col] = pd.to_numeric(fact[col], errors="coerce").round(2)
+
+    # ── Limpiar comillas en description ──────────────────────────────────────
+    fact["description"] = fact["description"].astype(str).str.replace('"', "'", regex=False).str.strip()
+    fact.loc[fact["description"] == "nan", "description"] = None
 
     kw = dict(index=False, quoting=csv.QUOTE_MINIMAL, encoding="utf-8-sig")
 
     # 1. Completo
     out = OUT_DIR / "fact_transactions.csv"
     fact.to_csv(out, **kw)
-    print(f"  ✅ fact_transactions.csv          → {len(fact):,} filas")
+    print(f"  ✅ fact_transactions.csv          → {len(fact):,} filas, {len(fact.columns)} cols")
 
-    # Columnas esenciales para versiones filtradas
-    essential = [c for c in [
-        "idtransaction","idcompany","idaccount","idsubaccount",
-        "amount","date","incomeexpenditure","status",
-        "description","defaultcategory","isenriched","enrichmentname",
-        "createdat","deletedat",
-        # fallback camelCase (fuente S3)
-        "idTransaction","idCompany","idAccount","idSubAccount",
-        "incomeExpenditure","defaultCategory","isEnriched","enrichmentName",
-        "createdAt","deletedAt",
-    ] if c in fact.columns]
-    # deduplica manteniendo orden
-    seen, cols = set(), []
-    for c in essential:
-        if c not in seen:
-            seen.add(c); cols.append(c)
+    # 2. Solo gastos (apto Excel)
+    exp = fact[fact["incomeexpenditure"] == "expenditure"].copy()
+    out_exp = OUT_DIR / "fact_transactions_expenditure.csv"
+    exp.to_csv(out_exp, **kw)
+    print(f"  ✅ fact_transactions_expenditure.csv → {len(exp):,} filas (solo gastos, apto Excel)")
 
-    exp_col = next((c for c in ["incomeexpenditure","incomeExpenditure"] if c in fact.columns), None)
-    if exp_col:
-        exp = fact[fact[exp_col] == "expenditure"][cols]
-        out_exp = OUT_DIR / "fact_transactions_expenditure.csv"
-        exp.to_csv(out_exp, **kw)
-        print(f"  ✅ fact_transactions_expenditure.csv → {len(exp):,} filas (solo gastos, apto Excel)")
-
-    sample = fact[cols].sample(n=min(50_000, len(fact)), random_state=42)
+    # 3. Muestra 50k
+    sample = fact.sample(n=min(50_000, len(fact)), random_state=42)
     out_s = OUT_DIR / "fact_transactions_sample.csv"
     sample.to_csv(out_s, **kw)
     print(f"  ✅ fact_transactions_sample.csv   → {len(sample):,} filas (muestra aleatoria)")
