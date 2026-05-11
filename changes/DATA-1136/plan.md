@@ -35,10 +35,10 @@ Output: `data/dough/smart_budget_prep.csv`
 | A1 | "bucket" | = `defaultcategory` (alineado con condiciones del usuario) |
 | A2 | Soft delete | `deletedat IS NULL` (26% de filas tienen soft delete) |
 | A3 | Tipo de transacción | `incomeexpenditure = 'expenditure'` |
-| A4 | Categorías excluidas | `defaultcategory NOT IN ('UNCATEGORIZED', NULL, 'INCOME')` |
+| A4 | Categorías excluidas | `defaultcategory NOT IN ('UNCATEGORIZED', NULL, 'INCOME', 'MONEY_SENT')` |
 | A5 | Status OLB (SUB/LOAN) | `status IS NULL` ó `status NOT IN ('PENDING', 'HOLD')` |
-| A6 | Status External (MANT/Dough) | `status = 'POSTED'` exacto, explícito |
-| A7 | Identificar fuente | `idtransaction` prefix: SUB/LOAN = OLB, MANT = External |
+| A6 | Status External (EXT/Dough) | `status = 'POSTED'` exacto, case-insensitive |
+| A7 | Identificar fuente | `idtransaction` prefix: SUB/LOAN = OLB, EXT = External (Plaid/Finicity) |
 | A8 | Clave de agregación | `(idclient, idcompany, idmember, defaultcategory, period_yyyymm)` |
 | A9 | Clamp negativos | `monthly_total = max(0, monthly_total)` |
 | A10 | P90 cap | Global sobre todos los totales mensuales del dataset filtrado |
@@ -162,10 +162,12 @@ Registros excluidos por gating **no aparecen** en el output.
 | E2 | Suma mensual neta negativa (REF > gastos) | Clamp a 0 antes del P90 |
 | E3 | Total mensual > P90 global | Reemplazado por P90, capped=True |
 | E4 | Bucket con < 3 meses de data | Excluido del output (gating) |
-| E5 | Transacción MANT sin status POSTED | Excluida por filtro A6 |
+| E5 | EXT sin status POSTED | Excluida por filtro A6 (case-insensitive) |
 | E6 | OLB con status PENDING | Excluida por filtro A5 |
-| E7 | defaultcategory NULL / UNCATEGORIZED / INCOME | Excluida por filtro A4 |
+| E7 | defaultcategory NULL / UNCATEGORIZED / INCOME / MONEY_SENT | Excluida por filtro A4 |
 | E8 | deletedat IS NOT NULL (soft-deleted) | Excluida por filtro A2 |
+| E9 | EXT con idcategory como float (8.0 vs "8") | Convertido a int-string antes del map con defaultcategory.csv |
+| E10 | P90 calculado con majority de ceros post zero-fill | P90 se computa solo sobre filas con monthly_total > 0 |
 
 ---
 
@@ -174,8 +176,58 @@ Registros excluidos por gating **no aparecen** en el output.
 - [x] Output es serie limpia `(user × bucket × month)` con totales mensuales
 - [x] Buckets con < 3 meses excluidos del dataset
 - [x] Outlier handling (P90 cap) documentado y aplicado consistentemente
-- [x] Solo transacciones Posted incluidas (por fuente: OLB vs External)
-- [x] Condiciones adicionales del dev: UNCATEGORIZED/NULL/INCOME excluidas, PENDING excluido
+- [x] Solo transacciones Posted incluidas (por fuente: OLB vs External EXT)
+- [x] Condiciones adicionales del dev: UNCATEGORIZED/NULL/INCOME/MONEY_SENT excluidas, PENDING excluido
+- [x] EXT (Plaid) incluidas con signo correcto (amount < 0 → expenditure abs)
+- [x] Dataset sintético generado para pruebas del modelo (`smart_budget_synthetic.csv`)
+
+---
+
+## Fixes de datos aplicados durante implementación
+
+Problemas encontrados al ejecutar el pipeline sobre datos reales (dev/alpha) y sus soluciones:
+
+| # | Problema | Root cause | Fix |
+|---|----------|------------|-----|
+| F1 | `idmember` no encontrado en fact_transactions | La columna se llama `idaccount` en el CSV construido | `run_smart_budget_prep.py`: rename `idaccount → idmember` al cargar |
+| F2 | Pipeline produce 0 rows — todos los totales son $0 | Plaid usa signo negativo para débitos; al sumar → negativo, clamp a 0 | `run_smart_budget_prep.py`: `df["amount"] = df["amount"].abs()` antes de agregar |
+| F3 | P90 = 0 → todos los valores capeados a $0 | `apply_p90_cap` calculaba percentil sobre todas las filas (95%+ ceros del zero-fill) | `aggregator.py`: P90 calculado solo sobre `monthly_total > 0` |
+| F4 | EXT sin `defaultcategory` en fact_transactions | `idcategory` viene como `float` (8.0); el dict tenía keys string ("8") → miss | `build_fact_transactions.py`: convertir float → int → str antes del map |
+| F5 | EXT transacciones no aparecían en fact_transactions | Prefix en `filters.py` era `MANT` (manual); EXT es el prefix correcto (Plaid) | `filters.py`: `MANT` → `EXT` en `is_ext` |
+| F6 | MONEY_SENT pasaba el filtro de categorías | No estaba en `EXCLUDED_CATEGORIES`; es label legacy de Ntropy/OLB | `filters.py`: agregar `MONEY_SENT` a `EXCLUDED_CATEGORIES` |
+
+### Enriquecimiento de datos dev
+
+`externaltransaction.csv` en dev no tiene `idcategory` (campo vacío). Para testing se enriquecieron manualmente 12 transacciones débito con categorías del catálogo y se agregaron 5 meses históricos adicionales (2025-11 → 2026-03):
+
+| Descripción | Categoría asignada |
+|---|---|
+| Grocery shopping | Groceries (id=8) |
+| Coffee / Restaurant | Food & Dining (id=7) |
+| Electric bill / Phone bill | Bills & Utilities (id=2) |
+| Car insurance / Uber | Auto & Transport (id=1) |
+| Gas station | Gas (id=27) |
+| Online purchase | Shopping (id=15) |
+| Streaming service | Subscriptions (id=16) |
+| Pharmacy | Health & Fitness (id=10) |
+| Rent payment | Home & Rent (id=11) |
+
+Este enriquecimiento **no se commitea** — es local en `data/dough/dev/silver/externaltransaction.csv` (gitignored).
+
+### Dataset sintético (`generate_synthetic_dataset.py`)
+
+Genera `smart_budget_synthetic.csv` para desarrollo y pruebas del modelo sin depender de datos reales:
+- **Entrada**: `smart_budget_prep.csv` (últimos N meses)
+- **Enriquece** miembros existentes con categorías nuevas
+- **Agrega** miembros 100% sintéticos (`SYN001–SYN008`)
+- **Montos**: distribuciones por categoría (ej. Home & Rent $500–$1800, Subscriptions $10–$80)
+- **Ceros**: probabilidad configurable por categoría (ejercita gating)
+- **Reproducible**: `--seed` garantiza mismo output
+
+```
+Resultado actual (--seed 42, --months 6, --new-members 8):
+  432 filas · 11 miembros · 16 categorías · 2025-12→2026-05 · 22.7% ceros
+```
 
 ---
 

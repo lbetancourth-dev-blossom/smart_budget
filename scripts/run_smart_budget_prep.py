@@ -41,6 +41,7 @@ REQUIRED_COLUMNS = {
     "idtransaction",
     "idclient",
     "idcompany",
+    "idaccount",
     "defaultcategory",
     "incomeexpenditure",
     "amount",
@@ -48,10 +49,6 @@ REQUIRED_COLUMNS = {
     "status",
     "deletedat",
 }
-
-# fact_transactions usa idaccount como identificador de cuenta/miembro.
-# Se renombra a idmember para que el pipeline interno use la clave canónica.
-MEMBER_COL_ALIAS = "idaccount"
 
 
 def _sha256_file(path: str) -> str:
@@ -117,10 +114,6 @@ def main() -> None:
         if df_raw.empty:
             raise ValueError("Input CSV has 0 rows — nothing to process.")
 
-        # Alias idaccount → idmember si no existe columna idmember
-        if "idmember" not in df_raw.columns and MEMBER_COL_ALIAS in df_raw.columns:
-            df_raw = df_raw.rename(columns={MEMBER_COL_ALIAS: "idmember"})
-
         # Convert types
         for col in ["deletedat", "status"]:
             df_raw[col] = df_raw[col].replace("", None)
@@ -157,14 +150,14 @@ def main() -> None:
 
         df_out = prepare_smart_budget_data(df_filtered, min_months=min_months)
 
-        unique_members = df_out["idmember"].nunique()
+        unique_members = df_out["idaccount"].nunique()
         unique_categories = df_out["defaultcategory"].nunique()
         periods = sorted(df_out["period_yyyymm"].unique())
         periods_range = f"{periods[0]}..{periods[-1]}" if periods else "none"
 
         logger.info(
             "aggregation_complete",
-            unique_members=unique_members,
+            unique_accounts=unique_members,
             unique_categories=unique_categories,
             periods_range=periods_range,
         )
@@ -190,8 +183,8 @@ def main() -> None:
         monthly = aggregate_monthly(df_filtered)
         filled = zero_fill(monthly)
         capped_df = apply_p90_cap(filled)
-        total_buckets_before = capped_df.groupby(["idmember", "defaultcategory"]).ngroups
-        total_buckets_after = df_out.groupby(["idmember", "defaultcategory"]).ngroups
+        total_buckets_before = capped_df.groupby(["idaccount", "defaultcategory"]).ngroups
+        total_buckets_after = df_out.groupby(["idaccount", "defaultcategory"]).ngroups
         buckets_removed = total_buckets_before - total_buckets_after
         rows_in_output = len(df_out)
 

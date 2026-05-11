@@ -21,7 +21,8 @@ def test_aggregate_monthly_sum():
     df = pd.DataFrame({
         "idclient": ["C1"] * 3,
         "idcompany": ["CO1"] * 3,
-        "idmember": ["M1", "M1", "M1"],
+        "idaccount": ["M1", "M1", "M1"],
+        "idcategory": ["5", "5", "5"],
         "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES"],
         "date": ["2025-01-05", "2025-01-15", "2025-02-10"],
         "amount": [100.0, 50.0, 200.0],
@@ -40,7 +41,8 @@ def test_aggregate_monthly_clamp_negative():
     df = pd.DataFrame({
         "idclient": ["C1"],
         "idcompany": ["CO1"],
-        "idmember": ["M1"],
+        "idaccount": ["M1"],
+        "idcategory": ["5"],
         "defaultcategory": ["SHOPPING"],
         "date": ["2025-03-10"],
         "amount": [-50.0],  # REF > expense
@@ -58,14 +60,15 @@ def test_zero_fill_inserts_missing_months():
     df = pd.DataFrame({
         "idclient": ["C1", "C1"],
         "idcompany": ["CO1", "CO1"],
-        "idmember": ["M1", "M1"],
+        "idaccount": ["M1", "M1"],
+        "idcategory": ["5", "5"],
         "defaultcategory": ["GROCERIES", "GROCERIES"],
         "period_yyyymm": ["2025-01", "2025-03"],
         "monthly_total": [100.0, 80.0],
     })
     result = zero_fill(df)
     feb = result[
-        (result["idmember"] == "M1") &
+        (result["idaccount"] == "M1") &
         (result["defaultcategory"] == "GROCERIES") &
         (result["period_yyyymm"] == "2025-02")
     ]
@@ -82,7 +85,8 @@ def test_apply_p90_cap():
     df = pd.DataFrame({
         "idclient": ["C1"] * 100,
         "idcompany": ["CO1"] * 100,
-        "idmember": [f"M{i}" for i in range(100)],
+        "idaccount": [f"M{i}" for i in range(100)],
+        "idcategory": ["5"] * 100,
         "defaultcategory": ["GROCERIES"] * 100,
         "period_yyyymm": ["2025-01"] * 100,
         "monthly_total": [float(t) for t in totals],
@@ -100,7 +104,8 @@ def test_apply_p90_cap():
 def test_apply_gating_excludes_low_data_buckets():
     # M1-GROCERIES: 3 months (passes) · M1-DINING: 2 months (excluded)
     df = pd.DataFrame({
-        "idmember": ["M1"] * 5,
+        "idaccount": ["M1"] * 5,
+        "idcategory": ["5", "5", "5", "9", "9"],
         "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES", "DINING", "DINING"],
         "period_yyyymm": ["2025-01", "2025-02", "2025-03", "2025-01", "2025-02"],
         "monthly_total": [100.0, 80.0, 90.0, 50.0, 60.0],
@@ -120,7 +125,8 @@ def test_apply_gating_excludes_low_data_buckets():
 def test_apply_gating_zero_months_dont_count():
     # M1-GROCERIES: 3 months but 1 is zero → only 2 months with data → excluded
     df = pd.DataFrame({
-        "idmember": ["M1"] * 3,
+        "idaccount": ["M1"] * 3,
+        "idcategory": ["5"] * 3,
         "defaultcategory": ["GROCERIES"] * 3,
         "period_yyyymm": ["2025-01", "2025-02", "2025-03"],
         "monthly_total": [100.0, 0.0, 80.0],  # Feb is zero-filled
@@ -143,7 +149,7 @@ def test_prepare_smart_budget_data_end_to_end():
     result = prepare_smart_budget_data(filtered, min_months=3)
     # Output column contract
     expected_cols = {
-        "idclient", "idcompany", "idmember", "defaultcategory",
+        "idclient", "idcompany", "idaccount", "idcategory", "defaultcategory",
         "period_yyyymm", "monthly_total", "capped",
     }
     assert expected_cols.issubset(set(result.columns))
@@ -151,7 +157,7 @@ def test_prepare_smart_budget_data_end_to_end():
     assert result["monthly_total"].max() <= result["monthly_total"].quantile(0.90) + 0.01
     # All remaining buckets have >= 3 months with data
     counts = result[result["monthly_total"] > 0].groupby(
-        ["idmember", "defaultcategory"]
+        ["idaccount", "defaultcategory"]
     )["period_yyyymm"].nunique()
     assert (counts >= 3).all()
 

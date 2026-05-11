@@ -12,9 +12,10 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 |------|--------|-----------|
 | Step 1 — Extracción DOUGH | ✅ | 30 tablas dev + 23 alpha → `data/dough/*/silver/` |
 | Step 2 — Extracción OLB | ✅ | 7 tablas → `data/olb/dev/silver/` (1.06M txns) |
-| Step 3 — `fact_transactions` | ✅ | **1,413,914 filas** (OLB SUB + LOAN + Dough EXT), rango 2022–2026 |
-| Step 4 — Modelo mediana | 🔄 | Pendiente: aplicar sobre `fact_transactions` |
-| Step 5 — Output BD | 🔄 | Pendiente: escribir a `budget` + `budgetcategory` |
+| Step 3 — `fact_transactions` | ✅ | **1,413,914 filas** (OLB SUB + LOAN + Dough EXT), rango 2022–2026, incluye `idcategory` |
+| Step 4 — Preparación datos (`DATA-1136`) | ✅ | `smart_budget_prep.csv`: **504 filas**, 5 cuentas, 11 categorías (post-filtros y gating) |
+| Step 5 — Modelo mediana | 🔄 | Pendiente |
+| Step 6 — Output BD | 🔄 | Pendiente |
 
 **Arquitectura de datos:**
 ```
@@ -80,7 +81,34 @@ Smart Budget **solo opera sobre el Grupo 1 (Expenses)**.
 > **Nota:** El catálogo es plano — no hay subcategorías en el schema actual de Dough.
 > Las CUs con RICH (Ntropy) tienen categorías custom adicionales mapeadas en `companyntropycategory`.
 
-## Estructura del repo
+## Schema del output — `smart_budget_prep.csv`
+
+El pipeline genera `data/dough/smart_budget_prep.csv` con las siguientes columnas:
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `idclient` | string | ID del cliente (Credit Union owner) |
+| `idcompany` | string | ID de la compañía (Credit Union) |
+| `idaccount` | string | ID de la cuenta del miembro. Prefijo `INT` = OLB, `EXT` = Plaid/Finicity |
+| `idcategory` | string | ID numérico de la categoría en `defaultcategory` (FK). Ej: `"8"` = Groceries |
+| `defaultcategory` | string | Nombre de la categoría. Ej: `"Groceries"` |
+| `period_yyyymm` | string | Mes del período. Formato `"YYYY-MM"` |
+| `monthly_total` | float | Suma de gastos del mes, normalizada a valor positivo, clampeada a P90. `0.0` si no hubo gasto ese mes (zero-fill) |
+| `capped` | bool | `True` si el `monthly_total` original superó el umbral P90 global y fue recortado. Útil para auditoría y transparencia downstream. `False` en la mayoría de los casos |
+
+> **Nota sobre `capped`:** el P90 se calcula solo sobre meses con gasto > 0 para no sesgar el umbral hacia cero por los meses zero-filled. Si un mes tiene `monthly_total == 0`, `capped` siempre es `False`.
+
+### Ejemplo de output
+
+```
+idclient,idcompany,idaccount,idcategory,defaultcategory,period_yyyymm,monthly_total,capped
+1,1,EXT2,1,Auto & Transport,2025-11,45.50,False
+1,1,EXT2,1,Auto & Transport,2025-12,0.0,False
+1,1,EXT2,8,Groceries,2025-11,120.00,False
+1,1,INT31880,8,Groceries,2025-10,92.02,True
+```
+
+
 
 ```
 smart_budget/

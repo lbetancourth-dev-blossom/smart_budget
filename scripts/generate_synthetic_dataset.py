@@ -41,6 +41,25 @@ EXPENSE_CATEGORIES = [
     "Travel & Trips",
 ]
 
+# Mapa de nombre de categoría → idcategory (del catálogo defaultcategory)
+CATEGORY_ID_MAP: dict[str, str] = {
+    "Auto & Transport":       "1",
+    "Bills & Utilities":      "2",
+    "Food & Dining":          "3",
+    "Groceries":              "4",
+    "Gas":                    "5",
+    "Health & Fitness":       "6",
+    "Home & Rent":            "7",
+    "Shopping":               "8",
+    "Subscriptions":          "9",
+    "Entertainment & Leisure": "10",
+    "Personal Care & Beauty": "11",
+    "Education":              "12",
+    "Pets":                   "13",
+    "Gifts & Donations":      "14",
+    "Travel & Trips":         "15",
+}
+
 # Rangos de montos realistas por categoría (min, max, prob_zero)
 # prob_zero: probabilidad de que un mes sea $0 (cuenta activa, sin gasto)
 CATEGORY_PROFILES = {
@@ -91,7 +110,8 @@ def build_synthetic_members(
                 rows.append({
                     "idclient":         "1",
                     "idcompany":        "1",
-                    "idmember":         member_id,
+                    "idaccount":         member_id,
+                    "idcategory":       CATEGORY_ID_MAP.get(cat, "99"),
                     "defaultcategory":  cat,
                     "period_yyyymm":    period,
                     "monthly_total":    random_amount(cat, rng),
@@ -107,12 +127,12 @@ def enrich_existing_members(
     extra_categories: int = 4,
 ) -> pd.DataFrame:
     """Agrega categorías adicionales a los miembros existentes con montos aleatorios."""
-    members = df_existing["idmember"].unique()
+    members = df_existing["idaccount"].unique()
     rows = []
     for member_id in members:
         # Categorías que ya tiene este miembro
         existing_cats = set(
-            df_existing[df_existing["idmember"] == member_id]["defaultcategory"].unique()
+            df_existing[df_existing["idaccount"] == member_id]["defaultcategory"].unique()
         )
         # Candidatas: categorías que aún no tiene
         candidates = [c for c in EXPENSE_CATEGORIES if c not in existing_cats]
@@ -123,9 +143,10 @@ def enrich_existing_members(
         for cat in new_cats:
             for period in periods:
                 rows.append({
-                    "idclient":         df_existing[df_existing["idmember"] == member_id]["idclient"].iloc[0],
-                    "idcompany":        df_existing[df_existing["idmember"] == member_id]["idcompany"].iloc[0],
-                    "idmember":         member_id,
+                    "idclient":         df_existing[df_existing["idaccount"] == member_id]["idclient"].iloc[0],
+                    "idcompany":        df_existing[df_existing["idaccount"] == member_id]["idcompany"].iloc[0],
+                    "idaccount":         member_id,
+                    "idcategory":       CATEGORY_ID_MAP.get(cat, "99"),
                     "defaultcategory":  cat,
                     "period_yyyymm":    period,
                     "monthly_total":    random_amount(cat, rng),
@@ -183,7 +204,7 @@ def main():
         (df_base["period_yyyymm"].isin(last_periods)) &
         (~df_base["defaultcategory"].isin(EXCLUDED_CATS))
     ].copy()
-    print(f"✅ Miembros existentes: {df_filtered['idmember'].nunique()} "
+    print(f"✅ Miembros existentes: {df_filtered['idaccount'].nunique()} "
           f"| Categorías: {df_filtered['defaultcategory'].nunique()}")
 
     # Enriquecer miembros existentes con categorías adicionales
@@ -200,10 +221,10 @@ def main():
     df_final = pd.concat([df_filtered, df_enriched, df_new], ignore_index=True)
 
     # Ordenar
-    df_final = df_final.sort_values(["idmember", "defaultcategory", "period_yyyymm"]).reset_index(drop=True)
+    df_final = df_final.sort_values(["idaccount", "defaultcategory", "period_yyyymm"]).reset_index(drop=True)
 
     # Estadísticas de cobertura
-    total_members   = df_final["idmember"].nunique()
+    total_members   = df_final["idaccount"].nunique()
     total_cats      = df_final["defaultcategory"].nunique()
     zero_pct        = (df_final["monthly_total"] == 0).mean() * 100
     nonzero_median  = df_final[df_final["monthly_total"] > 0]["monthly_total"].median()
@@ -212,7 +233,7 @@ def main():
     print("=" * 60)
     print(f"✅  Dataset sintético generado")
     print(f"   Filas           : {len(df_final):,}")
-    print(f"   Miembros        : {total_members} ({df_filtered['idmember'].nunique()} existentes + {args.new_members} nuevos)")
+    print(f"   Miembros        : {total_members} ({df_filtered['idaccount'].nunique()} existentes + {args.new_members} nuevos)")
     print(f"   Categorías      : {total_cats}")
     print(f"   Meses           : {last_periods[0]} → {last_periods[-1]}")
     print(f"   % filas en $0   : {zero_pct:.1f}% (para test de gating)")
@@ -222,7 +243,7 @@ def main():
 
     # Distribución por miembro
     summary = (
-        df_final.groupby("idmember")
+        df_final.groupby("idaccount")
         .agg(
             categorias=("defaultcategory", "nunique"),
             meses=("period_yyyymm", "nunique"),

@@ -115,6 +115,7 @@ def build_sub_transactions(olb: Path) -> pd.DataFrame:
         )
     else:
         df["defaultcategory"] = None
+        df["_otc_id"] = None
 
     # Construir columnas canonicas
     result = pd.DataFrame({
@@ -123,6 +124,7 @@ def build_sub_transactions(olb: Path) -> pd.DataFrame:
         "idCompany"            : df.get("idfi", pd.Series([None]*len(df))).astype(str),
         "idAccount"            : "INT" + df["idolbaccountnumber"].astype(str),
         "idSubAccount"         : "SUB" + df["idsubaccount"].astype(str),
+        "idCategory"           : df.get("_otc_id"),
         "amount"               : pd.to_numeric(df["amount"], errors="coerce"),
         "currency"             : "USD",
         "originalAmount"       : None,
@@ -211,6 +213,7 @@ def build_loan_transactions(olb: Path) -> pd.DataFrame:
         )
     else:
         df["defaultcategory"] = None
+        df["_otc_id"] = None
 
     # Columna de amount: principalamount (columna puede variar en case)
     amount_col = next((c for c in df.columns if c.lower() == "principalamount"), None)
@@ -224,6 +227,7 @@ def build_loan_transactions(olb: Path) -> pd.DataFrame:
         "idCompany"            : df.get("idfi", pd.Series([None]*len(df))).astype(str),
         "idAccount"            : "INT" + df["idolbaccountnumber"].astype(str),
         "idSubAccount"         : "LOAN" + df["idolbloan"].astype(str),
+        "idCategory"           : df.get("_otc_id"),
         "amount"               : pd.to_numeric(df[amount_col], errors="coerce") if amount_col else None,
         "currency"             : "USD",
         "originalAmount"       : None,
@@ -319,6 +323,7 @@ def build_external_transactions(dough: Path) -> pd.DataFrame:
         "idCompany"            : id_company,
         "idAccount"            : "EXT" + ext.get("idaccount", pd.Series([None] * len(ext))).astype(str),
         "idSubAccount"         : None,
+        "idCategory"           : idcat_aligned if default_cat_path.exists() else pd.Series([None] * len(ext)),
         "amount"               : amount_abs,
         "currency"             : ext.get("currency", "USD"),
         "originalAmount"       : pd.to_numeric(ext.get("originalamount"), errors="coerce"),

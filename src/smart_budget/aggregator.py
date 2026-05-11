@@ -5,7 +5,7 @@ import numpy as np
 
 def aggregate_monthly(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Agrupa por (idclient, idcompany, idmember, defaultcategory, period_yyyymm)
+    Agrupa por (idclient, idcompany, idaccount, idcategory, defaultcategory, period_yyyymm)
     y suma amount. Clampea negativos a 0. Retorna columna monthly_total.
 
     Crea period_yyyymm desde la columna `date` como "YYYY-MM".
@@ -13,7 +13,7 @@ def aggregate_monthly(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["period_yyyymm"] = pd.to_datetime(df["date"]).dt.to_period("M").astype(str)
 
-    group_keys = ["idclient", "idcompany", "idmember", "defaultcategory", "period_yyyymm"]
+    group_keys = ["idclient", "idcompany", "idaccount", "idcategory", "defaultcategory", "period_yyyymm"]
     agg = df.groupby(group_keys, as_index=False)["amount"].sum()
     agg.rename(columns={"amount": "monthly_total"}, inplace=True)
 
@@ -32,18 +32,18 @@ def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
     Raises:
         ValueError: if any idmember maps to more than one (idclient, idcompany) pair.
     """
-    # Validate: each idmember must map to exactly one (idclient, idcompany)
+    # Validate: each idaccount must map to exactly one (idclient, idcompany)
     member_company = (
-        df[["idmember", "idclient", "idcompany"]]
+        df[["idaccount", "idclient", "idcompany"]]
         .drop_duplicates()
-        .groupby("idmember")
+        .groupby("idaccount")
         .size()
     )
     violations = member_company[member_company > 1]
     if not violations.empty:
         raise ValueError(
-            f"idmember maps to multiple (idclient, idcompany) pairs: "
-            f"{len(violations)} member(s) violated the uniqueness constraint."
+            f"idaccount maps to multiple (idclient, idcompany) pairs: "
+            f"{len(violations)} account(s) violated the uniqueness constraint."
         )
 
     # Determine all months in [min_month, max_month] range
@@ -51,8 +51,8 @@ def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
     all_months = pd.period_range(start=periods.min(), end=periods.max(), freq="M")
     all_months_str = [str(p) for p in all_months]
 
-    # Get unique (idmember, defaultcategory) pairs
-    member_cat = df[["idclient", "idcompany", "idmember", "defaultcategory"]].drop_duplicates()
+    # Get unique (idaccount, idcategory, defaultcategory) pairs
+    member_cat = df[["idclient", "idcompany", "idaccount", "idcategory", "defaultcategory"]].drop_duplicates()
 
     # Build full grid: cross join member_cat × all_months
     months_df = pd.DataFrame({"period_yyyymm": all_months_str})
@@ -62,11 +62,11 @@ def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
     full_grid = pd.merge(member_cat, months_df, on="_key").drop(columns=["_key"])
 
     # Left join grid ← actual data
-    agg_cols = ["idmember", "defaultcategory", "period_yyyymm", "monthly_total"]
+    agg_cols = ["idaccount", "idcategory", "defaultcategory", "period_yyyymm", "monthly_total"]
     result = pd.merge(
         full_grid,
         df[agg_cols],
-        on=["idmember", "defaultcategory", "period_yyyymm"],
+        on=["idaccount", "idcategory", "defaultcategory", "period_yyyymm"],
         how="left",
     )
     result["monthly_total"] = result["monthly_total"].fillna(0.0)
@@ -100,21 +100,21 @@ def apply_p90_cap(df: pd.DataFrame) -> pd.DataFrame:
 
 def apply_gating(df: pd.DataFrame, min_months: int = 3) -> pd.DataFrame:
     """
-    Cuenta meses únicos con monthly_total > 0 por (idmember, defaultcategory).
+    Cuenta meses únicos con monthly_total > 0 por (idaccount, idcategory, defaultcategory).
     Excluye pares con count < min_months.
     Zero-filled months (monthly_total == 0) do NOT count toward the gating threshold.
     """
     nonzero = df[df["monthly_total"] > 0]
     month_counts = (
         nonzero
-        .groupby(["idmember", "defaultcategory"])["period_yyyymm"]
+        .groupby(["idaccount", "idcategory", "defaultcategory"])["period_yyyymm"]
         .nunique()
         .reset_index(name="month_count")
     )
     qualifying = month_counts[month_counts["month_count"] >= min_months][
-        ["idmember", "defaultcategory"]
+        ["idaccount", "idcategory", "defaultcategory"]
     ]
-    result = pd.merge(df, qualifying, on=["idmember", "defaultcategory"], how="inner")
+    result = pd.merge(df, qualifying, on=["idaccount", "idcategory", "defaultcategory"], how="inner")
     return result.reset_index(drop=True)
 
 
@@ -127,7 +127,7 @@ def prepare_smart_budget_data(
     aggregate_monthly → zero_fill → apply_p90_cap → apply_gating.
 
     Returns DataFrame with columns:
-        idclient, idcompany, idmember, defaultcategory, period_yyyymm,
+        idclient, idcompany, idaccount, idcategory, defaultcategory, period_yyyymm,
         monthly_total (float, >= 0, <= P90), capped (bool).
     """
     monthly = aggregate_monthly(df)
@@ -136,7 +136,7 @@ def prepare_smart_budget_data(
     gated = apply_gating(capped, min_months=min_months)
 
     output_cols = [
-        "idclient", "idcompany", "idmember", "defaultcategory",
+        "idclient", "idcompany", "idaccount", "idcategory", "defaultcategory",
         "period_yyyymm", "monthly_total", "capped",
     ]
     return gated[output_cols].reset_index(drop=True)
