@@ -46,9 +46,9 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
     Reglas (en orden):
         1. deletedat IS NULL (soft delete)
         2. incomeexpenditure == 'expenditure'
-        3. defaultcategory NOT IN (None, 'UNCATEGORIZED', 'INCOME')
+        3. defaultcategory NOT IN (None, 'UNCATEGORIZED', 'INCOME', 'MONEY_SENT')
         4. OLB (SUB/LOAN prefix): status IS NULL ó status NOT IN ('PENDING', 'HOLD')
-        5. External (MANT prefix): status == 'POSTED'
+        5. External (EXT prefix / Plaid): status == 'POSTED'
 
     Args:
         df: DataFrame con esquema de fact_transactions (columnas en minúsculas).
@@ -99,9 +99,9 @@ def test_filter_removes_income_transactions():
     assert "income" not in result["incomeexpenditure"].values
 ```
 
-### TC-2.3 — Filtro A4: excluir UNCATEGORIZED, NULL, INCOME (categoría)
+### TC-2.3 — Filtro A4: excluir UNCATEGORIZED, NULL, INCOME, MONEY_SENT (categoría)
 ```python
-@pytest.mark.parametrize("category", ["UNCATEGORIZED", None, "INCOME"])
+@pytest.mark.parametrize("category", ["UNCATEGORIZED", None, "INCOME", "MONEY_SENT"])
 def test_filter_removes_invalid_categories(category):
     df = pd.DataFrame({
         "deletedat": [None, None],
@@ -132,20 +132,20 @@ def test_filter_removes_olb_pending():
     assert "SUB2" not in result["idtransaction"].values
 ```
 
-### TC-2.5 — Filtro A6: external (MANT) solo POSTED
+### TC-2.5 — Filtro A6: external (EXT/Plaid) solo POSTED
 ```python
 def test_filter_external_only_posted():
     df = pd.DataFrame({
         "deletedat": [None, None, None],
         "incomeexpenditure": ["expenditure"] * 3,
         "defaultcategory": ["DINING"] * 3,
-        "idtransaction": ["MANT1", "MANT2", "MANT3"],
+        "idtransaction": ["EXT1", "EXT2", "EXT3"],
         "status": ["POSTED", "PENDING", None],
         "amount": [50.0, 80.0, 90.0],
     })
     result = filter_transactions(df)
     assert len(result) == 1
-    assert result.iloc[0]["idtransaction"] == "MANT1"
+    assert result.iloc[0]["idtransaction"] == "EXT1"
 ```
 
 ### TC-2.6 — Todas las reglas combinadas (caso realista)
@@ -154,7 +154,7 @@ def test_filter_combined_rules():
     """Fixture: 10 filas, 5 deben sobrevivir los 5 filtros."""
     df = _load_fixture("fact_transactions_test.csv")
     result = filter_transactions(df)
-    expected_ids = {"SUB_VALID_1", "SUB_VALID_2", "LOAN_VALID_1", "MANT_POSTED_1", "MANT_POSTED_2"}
+    expected_ids = {"SUB_VALID_1", "SUB_VALID_2", "LOAN_VALID_1", "EXT_POSTED_1", "EXT_POSTED_2"}
     assert set(result["idtransaction"].values) == expected_ids
 ```
 
@@ -178,20 +178,16 @@ def test_filter_empty_dataframe():
 
 ```python
 def aggregate_monthly(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrupa por (idclient, idcompany, idmember, defaultcategory, period_yyyymm)
+    """Agrupa por (idclient, idcompany, idaccount, idcategory, defaultcategory, period_yyyymm)
     y suma amount. Clampea negativos a 0. Retorna columna monthly_total."""
 
 def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
-    """Genera el grid completo (member×category×all_months en rango del dataset).
+    """Genera el grid completo (account×category×all_months en rango del dataset).
     Hace left join con df. Rellena NaN → 0 en monthly_total.
-    Propaga idclient e idcompany del miembro (consistent dentro del grupo)."""
-
-def apply_p90_cap(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcula el percentil 90 global de monthly_total (post zero-fill).
-    Aplica clip(upper=p90). Agrega columna booleana 'capped'."""
+    Propaga idclient e idcompany del account (consistent dentro del grupo)."""
 
 def apply_gating(df: pd.DataFrame, min_months: int = 3) -> pd.DataFrame:
-    """Cuenta meses únicos (no-cero) por (idmember, defaultcategory).
+    """Cuenta meses únicos (no-cero) por (idaccount, idcategory, defaultcategory).
     Excluye pares con count < min_months. Retorna df sin esos pares."""
 
 def prepare_smart_budget_data(
@@ -199,12 +195,12 @@ def prepare_smart_budget_data(
     min_months: int = 3,
 ) -> pd.DataFrame:
     """Orquesta el pipeline completo:
-    aggregate_monthly → zero_fill → apply_p90_cap → apply_gating."""
+    aggregate_monthly → zero_fill → apply_gating."""
 ```
 
 **Columnas del output de `prepare_smart_budget_data`:**
-`idclient`, `idcompany`, `idmember`, `defaultcategory`, `period_yyyymm`,
-`monthly_total` (float, ≥ 0, ≤ P90), `capped` (bool).
+`idclient`, `idcompany`, `idaccount`, `idcategory`, `defaultcategory`, `period_yyyymm`,
+`monthly_total` (float, ≥ 0).
 
 ---
 
@@ -216,7 +212,8 @@ def test_aggregate_monthly_sum():
     df = pd.DataFrame({
         "idclient": ["C1"] * 3,
         "idcompany": ["CO1"] * 3,
-        "idmember": ["M1", "M1", "M1"],
+        "idaccount": ["M1", "M1", "M1"],
+        "idcategory": ["8"] * 3,
         "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES"],
         "date": ["2025-01-05", "2025-01-15", "2025-02-10"],
         "amount": [100.0, 50.0, 200.0],
@@ -233,7 +230,8 @@ def test_aggregate_monthly_clamp_negative():
     df = pd.DataFrame({
         "idclient": ["C1"],
         "idcompany": ["CO1"],
-        "idmember": ["M1"],
+        "idaccount": ["M1"],
+        "idcategory": ["15"],
         "defaultcategory": ["SHOPPING"],
         "date": ["2025-03-10"],
         "amount": [-50.0],  # REF mayor que gasto
@@ -249,47 +247,30 @@ def test_zero_fill_inserts_missing_months():
     df = pd.DataFrame({
         "idclient": ["C1", "C1"],
         "idcompany": ["CO1", "CO1"],
-        "idmember": ["M1", "M1"],
+        "idaccount": ["M1", "M1"],
+        "idcategory": ["8", "8"],
         "defaultcategory": ["GROCERIES", "GROCERIES"],
         "period_yyyymm": ["2025-01", "2025-03"],
         "monthly_total": [100.0, 80.0],
     })
     result = zero_fill(df)
-    feb = result[(result["idmember"] == "M1") &
+    feb = result[(result["idaccount"] == "M1") &
                  (result["defaultcategory"] == "GROCERIES") &
                  (result["period_yyyymm"] == "2025-02")]
     assert len(feb) == 1
     assert feb.iloc[0]["monthly_total"] == 0.0
 ```
 
-### TC-3.4 — apply_p90_cap: cap correcto
-```python
-def test_apply_p90_cap():
-    totals = list(range(1, 101))  # 1..100; P90 = 90
-    df = pd.DataFrame({
-        "idclient": ["C1"] * 100,
-        "idcompany": ["CO1"] * 100,
-        "idmember": [f"M{i}" for i in range(100)],
-        "defaultcategory": ["GROCERIES"] * 100,
-        "period_yyyymm": ["2025-01"] * 100,
-        "monthly_total": [float(t) for t in totals],
-    })
-    result = apply_p90_cap(df)
-    assert result["monthly_total"].max() <= 90.0
-    assert result[result["monthly_total"] == 90.0]["capped"].all()
-    assert not result[result["monthly_total"] < 90.0]["capped"].any()
-```
-
-### TC-3.5 — apply_gating: excluir buckets con < 3 meses
+### TC-3.4 — apply_gating: excluir buckets con < 3 meses
 ```python
 def test_apply_gating_excludes_low_data_buckets():
     # M1-GROCERIES: 3 meses (pasa) · M1-DINING: 2 meses (excluido)
     df = pd.DataFrame({
-        "idmember": ["M1"] * 5,
+        "idaccount": ["M1"] * 5,
+        "idcategory": ["8", "8", "8", "7", "7"],
         "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES", "DINING", "DINING"],
         "period_yyyymm": ["2025-01", "2025-02", "2025-03", "2025-01", "2025-02"],
         "monthly_total": [100.0, 80.0, 90.0, 50.0, 60.0],
-        "capped": [False] * 5,
         "idclient": ["C1"] * 5,
         "idcompany": ["CO1"] * 5,
     })
@@ -298,16 +279,16 @@ def test_apply_gating_excludes_low_data_buckets():
     assert "DINING" not in result["defaultcategory"].values
 ```
 
-### TC-3.6 — apply_gating: meses con $0 NO cuentan para el gating
+### TC-3.5 — apply_gating: meses con $0 NO cuentan para el gating
 ```python
 def test_apply_gating_zero_months_dont_count():
     # M1-GROCERIES: 3 meses pero 1 es cero → solo 2 meses con data → excluido
     df = pd.DataFrame({
-        "idmember": ["M1"] * 3,
+        "idaccount": ["M1"] * 3,
+        "idcategory": ["8"] * 3,
         "defaultcategory": ["GROCERIES"] * 3,
         "period_yyyymm": ["2025-01", "2025-02", "2025-03"],
-        "monthly_total": [100.0, 0.0, 80.0],  # feb es cero
-        "capped": [False] * 3,
+        "monthly_total": [100.0, 0.0, 80.0],  # feb es zero-fill
         "idclient": ["C1"] * 3,
         "idcompany": ["CO1"] * 3,
     })
@@ -316,25 +297,26 @@ def test_apply_gating_zero_months_dont_count():
     assert len(result) == 0
 ```
 
-### TC-3.7 — prepare_smart_budget_data: pipeline completo end-to-end
+### TC-3.6 — prepare_smart_budget_data: pipeline completo end-to-end
 ```python
 def test_prepare_smart_budget_data_end_to_end():
     df = _load_fixture("fact_transactions_test.csv")
     filtered = filter_transactions(df)
     result = prepare_smart_budget_data(filtered, min_months=3)
     # Contrato del output
-    expected_cols = {"idclient", "idcompany", "idmember", "defaultcategory",
-                     "period_yyyymm", "monthly_total", "capped"}
+    expected_cols = {
+        "idclient", "idcompany", "idaccount", "idcategory", "defaultcategory",
+        "period_yyyymm", "monthly_total",
+    }
     assert expected_cols.issubset(set(result.columns))
     assert (result["monthly_total"] >= 0).all()
-    assert result["monthly_total"].max() <= result["monthly_total"].quantile(0.90) + 0.01
     # Ningún bucket excluido tiene < 3 meses
     counts = result[result["monthly_total"] > 0].groupby(
-        ["idmember", "defaultcategory"])["period_yyyymm"].nunique()
+        ["idaccount", "defaultcategory"])["period_yyyymm"].nunique()
     assert (counts >= 3).all()
 ```
 
-### TC-3.8 — Idempotencia: dos runs producen output idéntico
+### TC-3.7 — Idempotencia: dos runs producen output idéntico
 ```python
 def test_prepare_idempotent():
     df = _load_fixture("fact_transactions_test.csv")
