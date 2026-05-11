@@ -10,7 +10,7 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
     Reglas (en orden):
         1. deletedat IS NULL (soft delete)
         2. incomeexpenditure == 'expenditure'
-        3. defaultcategory NOT IN (None, 'UNCATEGORIZED', 'INCOME')
+        3. defaultcategory NOT IN (None, 'UNCATEGORIZED', 'INCOME', 'MONEY_SENT')
         4. OLB (SUB/LOAN prefix): status IS NULL ó status NOT IN ('PENDING', 'HOLD')
         5. External Dough (EXT prefix, Plaid/Finicity): status == 'POSTED' (case-insensitive)
 

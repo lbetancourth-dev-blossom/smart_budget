@@ -353,7 +353,7 @@ Crear un CSV sintético (~50 filas) que cubra todos los casos edge de los tests.
 - 1 fila con amount negativo (REF)
 
 **Columnas mínimas requeridas:**
-`idtransaction, idclient, idcompany, idmember, defaultcategory, incomeexpenditure,
+`idtransaction, idclient, idcompany, idaccount, defaultcategory, incomeexpenditure,
 amount, date, status, deletedat`
 
 ---
@@ -397,7 +397,6 @@ No propagar tracebacks con DataFrame contents a stdout/stderr.
 - Al inicio: `job_start`, `input_path`, `min_months`
 - Tras filtrado: `rows_original`, `rows_after_filter`, `rows_removed_pct`
 - Tras agregación: `unique_members`, `unique_categories`, `periods_range`
-- Tras P90 cap: `p90_value`, `rows_capped`
 - Tras gating: `buckets_removed`, `rows_in_output`
 - Al final: `job_done`, `output_path`, `output_rows`
 
@@ -411,6 +410,6 @@ Antes de hacer commit, verificar:
 - [ ] `pytest tests/unit/test_filters.py -v` — todos los TC pasan
 - [ ] `pytest tests/unit/test_aggregator.py -v` — todos los TC pasan
 - [ ] `python scripts/run_smart_budget_prep.py --input data/dough/fact_transactions_sample.csv` — no lanza excepciones, genera output
-- [ ] Output tiene columnas: `idclient, idcompany, idmember, defaultcategory, period_yyyymm, monthly_total, capped`
+- [ ] Output tiene columnas: `idclient, idcompany, idaccount, idcategory, defaultcategory, period_yyyymm, monthly_total`
 - [ ] `monthly_total >= 0` en todo el output
 - [ ] Sin PII en fixtures ni en logs

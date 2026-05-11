@@ -1,4 +1,4 @@
-"""tests/unit/test_aggregator.py — Unit tests for smart_budget.aggregator (TC-3.1–TC-3.8)."""
+"""tests/unit/test_aggregator.py — Unit tests for smart_budget.aggregator (TC-3.1–TC-3.7)."""
 import pandas as pd
 import pytest
 
@@ -76,7 +76,7 @@ def test_zero_fill_inserts_missing_months():
 
 
 # ---------------------------------------------------------------------------
-# TC-3.5 — apply_gating: exclude buckets with < 3 months
+# TC-3.4 — apply_gating: exclude buckets with < 3 months
 # ---------------------------------------------------------------------------
 
 def test_apply_gating_excludes_low_data_buckets():
@@ -96,7 +96,7 @@ def test_apply_gating_excludes_low_data_buckets():
 
 
 # ---------------------------------------------------------------------------
-# TC-3.6 — apply_gating: zero-filled months do NOT count toward gating
+# TC-3.5 — apply_gating: zero-filled months do NOT count toward gating
 # ---------------------------------------------------------------------------
 
 def test_apply_gating_zero_months_dont_count():
@@ -116,7 +116,7 @@ def test_apply_gating_zero_months_dont_count():
 
 
 # ---------------------------------------------------------------------------
-# TC-3.7 — prepare_smart_budget_data: full pipeline end-to-end
+# TC-3.6 — prepare_smart_budget_data: full pipeline end-to-end
 # ---------------------------------------------------------------------------
 
 def test_prepare_smart_budget_data_end_to_end():
@@ -139,7 +139,7 @@ def test_prepare_smart_budget_data_end_to_end():
 
 
 # ---------------------------------------------------------------------------
-# TC-3.8 — Idempotency: two runs produce identical output
+# TC-3.7 — Idempotency: two runs produce identical output
 # ---------------------------------------------------------------------------
 
 def test_prepare_idempotent():
