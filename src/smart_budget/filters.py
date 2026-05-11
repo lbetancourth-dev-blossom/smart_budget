@@ -12,7 +12,7 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
         2. incomeexpenditure == 'expenditure'
         3. defaultcategory NOT IN (None, 'UNCATEGORIZED', 'INCOME')
         4. OLB (SUB/LOAN prefix): status IS NULL ó status NOT IN ('PENDING', 'HOLD')
-        5. External (MANT prefix): status == 'POSTED'
+        5. External Dough (EXT prefix, Plaid/Finicity): status == 'POSTED' (case-insensitive)
 
     Args:
         df: DataFrame con esquema de fact_transactions (columnas en minúsculas).
@@ -34,11 +34,13 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
     df = df[~df["defaultcategory"].isin(["UNCATEGORIZED", "INCOME"])]
 
     # Rules 4 & 5 — A5/A6: status filter by transaction source (idtransaction prefix)
+    # OLB (SUB/LOAN): status NULL o no PENDING/HOLD
+    # External Dough (EXT, via Plaid/Finicity): status == 'POSTED' (case-insensitive)
     is_olb = df["idtransaction"].str.startswith(("SUB", "LOAN"))
-    is_ext = df["idtransaction"].str.startswith("MANT")
+    is_ext = df["idtransaction"].str.startswith("EXT")
 
-    olb_ok = is_olb & (df["status"].isna() | ~df["status"].isin(["PENDING", "HOLD"]))
-    ext_ok = is_ext & (df["status"] == "POSTED")
+    olb_ok = is_olb & (df["status"].isna() | ~df["status"].str.upper().isin(["PENDING", "HOLD"]))
+    ext_ok = is_ext & (df["status"].str.upper() == "POSTED")
 
     df = df[olb_ok | ext_ok]
 

@@ -32,7 +32,14 @@ import pandas as pd
 from pathlib import Path
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-ROOT            = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent
+# Cuando el script se ejecuta desde un worktree (.worktrees/<TICKET>/),
+# data/ vive en el repo principal (dos niveles arriba).
+# Se verifica con un subdirectorio concreto, no solo la existencia de data/.
+_OLB_CHECK = ROOT / "data" / "olb" / "dev" / "silver"
+if not _OLB_CHECK.exists() and (ROOT.parent.parent / "data" / "olb" / "dev" / "silver").exists():
+    ROOT = ROOT.parent.parent
+
 OLB_DIR         = ROOT / "data" / "olb" / "dev" / "silver"
 DOUGH_DIR_DEV   = ROOT / "data" / "dough" / "dev"  / "silver"
 DOUGH_DIR_ALPHA = ROOT / "data" / "dough" / "alpha" / "silver"
@@ -254,6 +261,11 @@ def build_external_transactions(dough: Path) -> pd.DataFrame:
     """
     Transacciones externas de Dough (via Plaid/Finicity).
     Mapea externaltransaction → esquema canónico de fact_transactions.
+
+    Convención de signo Plaid: amount < 0 → gasto (debit/expenditure),
+                                amount > 0 → ingreso (credit/income).
+    El prefijo de idTransaction es 'EXT' — usado por filters.py para
+    aplicar la regla de status POSTED a este tipo de transacciones.
     """
     print("→ Cargando externaltransaction (DOUGH)...")
     ext = load(dough, "externaltransaction")
@@ -264,22 +276,44 @@ def build_external_transactions(dough: Path) -> pd.DataFrame:
 
     print(f"  externaltransaction: {len(ext):,} filas")
 
-    # amount en externaltransaction puede ser positivo=gasto, negativo=ingreso (Plaid convention)
+    # Convención Plaid: negativo = débito (gasto), positivo = crédito (ingreso)
     amount = pd.to_numeric(ext.get("amount"), errors="coerce")
+    income_exp = amount.apply(
+        lambda a: "expenditure" if (pd.notna(a) and float(a) < 0) else "income"
+    )
+
+    # Normalizar amount a positivo para gastos (valor absoluto del débito)
+    amount_abs = amount.abs()
+
+    # Lookup de categoría: idcategory → defaultcategory.name
+    default_cat_path = dough / "defaultcategory.csv"
+    if default_cat_path.exists():
+        cat_df = pd.read_csv(default_cat_path, dtype=str)
+        cat_df.columns = [c.lower() for c in cat_df.columns]
+        cat_map = cat_df.set_index("id")["name"].to_dict()
+        default_category = ext.get("idcategory", pd.Series([""] * len(ext))).astype(str).map(cat_map)
+    else:
+        default_category = pd.Series([None] * len(ext))
+
+    # idCompany: externaltransaction no tiene idcompany — se infiere de la cuenta
+    # En dev todos pertenecen a company=1 (mismo CU que OLB)
+    id_company = ext.get("idcompany", pd.Series(["1"] * len(ext)))
+
+    date_col = ext["date"] if "date" in ext.columns else ext.get("effectivedate", ext.get("createdat"))
 
     result = pd.DataFrame({
         "idTransaction"        : "EXT" + ext["id"].astype(str),
         "idClient"             : 1,
-        "idCompany"            : ext.get("idcompany", ext.get("idfi")),
-        "idAccount"            : "EXT" + ext.get("idaccount", pd.Series([None]*len(ext))).astype(str),
+        "idCompany"            : id_company,
+        "idAccount"            : "EXT" + ext.get("idaccount", pd.Series([None] * len(ext))).astype(str),
         "idSubAccount"         : None,
-        "amount"               : amount,
+        "amount"               : amount_abs,
         "currency"             : ext.get("currency", "USD"),
         "originalAmount"       : pd.to_numeric(ext.get("originalamount"), errors="coerce"),
-        "timestamp"            : pd.to_datetime(ext["date"] if "date" in ext.columns else ext.get("createdat"), errors="coerce"),
-        "date"                 : pd.to_datetime(ext["date"] if "date" in ext.columns else ext.get("createdat"), errors="coerce").dt.date,
-        "incomeExpenditure"    : amount.apply(lambda a: "expenditure" if float(a or 0) > 0 else "income"),
-        "status"               : ext.get("status"),
+        "timestamp"            : pd.to_datetime(date_col, errors="coerce"),
+        "date"                 : pd.to_datetime(date_col, errors="coerce").dt.date,
+        "incomeExpenditure"    : income_exp,
+        "status"               : ext.get("status", "").str.upper(),
         "description"          : ext["description"] if "description" in ext.columns else ext.get("name"),
         "balance"              : None,
         "isEnriched"           : ext.get("isenriched", False),
@@ -288,19 +322,20 @@ def build_external_transactions(dough: Path) -> pd.DataFrame:
         "enrichmentName"       : ext.get("merchantname"),
         "enrichmentLocation"   : None,
         "enrichmentUrl"        : None,
-        "defaultCategory"      : ext.get("categoryname"),
+        "defaultCategory"      : default_category,
         "idOLBTransactionInfo" : None,
         "transactionComplete"  : None,
         "note"                 : None,
         "checkNumber"          : None,
-        "isSplit"              : False,
+        "isSplit"              : ext.get("issplit", False),
         "splitedTransactions"  : None,
         "createdAt"            : pd.to_datetime(ext.get("createdat"), errors="coerce"),
         "deletedAt"            : pd.to_datetime(ext.get("deletedat"), errors="coerce"),
         "doughId"              : ext.get("id").astype(str),
         "source"               : "DOUGH_EXT",
     })
-    print(f"  ✅ EXT transactions: {len(result):,}")
+    exp_count = (income_exp == "expenditure").sum()
+    print(f"  ✅ EXT transactions: {len(result):,} ({exp_count} expenditure, {len(result)-exp_count} income)")
     return result
 
 

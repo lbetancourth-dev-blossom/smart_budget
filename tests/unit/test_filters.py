@@ -80,7 +80,7 @@ def test_filter_removes_olb_pending():
 
 
 # ---------------------------------------------------------------------------
-# TC-2.5 — External (MANT) only POSTED
+# TC-2.5 — External Dough (EXT/Plaid) only POSTED
 # ---------------------------------------------------------------------------
 
 def test_filter_external_only_posted():
@@ -88,13 +88,13 @@ def test_filter_external_only_posted():
         "deletedat": [None, None, None],
         "incomeexpenditure": ["expenditure"] * 3,
         "defaultcategory": ["DINING"] * 3,
-        "idtransaction": ["MANT1", "MANT2", "MANT3"],
+        "idtransaction": ["EXT1", "EXT2", "EXT3"],
         "status": ["POSTED", "PENDING", None],
         "amount": [50.0, 80.0, 90.0],
     })
     result = filter_transactions(df)
     assert len(result) == 1
-    assert result.iloc[0]["idtransaction"] == "MANT1"
+    assert result.iloc[0]["idtransaction"] == "EXT1"
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ def test_filter_combined_rules():
     """Fixture: rows covering all 5 rules; exactly 5 valid IDs must survive."""
     df = _load_fixture("fact_transactions_test.csv")
     result = filter_transactions(df)
-    expected_ids = {"SUB_VALID_1", "SUB_VALID_2", "LOAN_VALID_1", "MANT_POSTED_1", "MANT_POSTED_2"}
+    expected_ids = {"SUB_VALID_1", "SUB_VALID_2", "LOAN_VALID_1", "EXT_POSTED_1", "EXT_POSTED_2"}
     assert set(result["idtransaction"].values) == expected_ids
 
 
