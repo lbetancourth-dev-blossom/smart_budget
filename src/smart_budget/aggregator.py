@@ -79,11 +79,19 @@ def apply_p90_cap(df: pd.DataFrame) -> pd.DataFrame:
     Calcula el percentil 90 global de monthly_total (post zero-fill).
     Aplica clip(upper=p90). Agrega columna booleana 'capped'.
 
+    El P90 se calcula SOLO sobre filas con monthly_total > 0 para evitar
+    que los meses zero-filled (valor sintético, no gasto real) distorsionen
+    el umbral hacia 0. Si no hay filas no-cero, no se capea nada.
+
     Uses 'lower' interpolation so P90 lands on an actual observed value.
     Rows at or above the P90 threshold are marked as capped=True.
     """
     df = df.copy()
-    p90 = df["monthly_total"].quantile(0.90, interpolation="lower")
+    nonzero_vals = df.loc[df["monthly_total"] > 0, "monthly_total"]
+    if nonzero_vals.empty:
+        df["capped"] = False
+        return df.reset_index(drop=True)
+    p90 = nonzero_vals.quantile(0.90, interpolation="lower")
     # Mark capped BEFORE clipping (values at or above p90)
     df["capped"] = df["monthly_total"] >= p90
     df["monthly_total"] = df["monthly_total"].clip(upper=p90)

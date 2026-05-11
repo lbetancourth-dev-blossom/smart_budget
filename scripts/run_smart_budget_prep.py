@@ -41,7 +41,6 @@ REQUIRED_COLUMNS = {
     "idtransaction",
     "idclient",
     "idcompany",
-    "idmember",
     "defaultcategory",
     "incomeexpenditure",
     "amount",
@@ -49,6 +48,10 @@ REQUIRED_COLUMNS = {
     "status",
     "deletedat",
 }
+
+# fact_transactions usa idaccount como identificador de cuenta/miembro.
+# Se renombra a idmember para que el pipeline interno use la clave canónica.
+MEMBER_COL_ALIAS = "idaccount"
 
 
 def _sha256_file(path: str) -> str:
@@ -114,6 +117,10 @@ def main() -> None:
         if df_raw.empty:
             raise ValueError("Input CSV has 0 rows — nothing to process.")
 
+        # Alias idaccount → idmember si no existe columna idmember
+        if "idmember" not in df_raw.columns and MEMBER_COL_ALIAS in df_raw.columns:
+            df_raw = df_raw.rename(columns={MEMBER_COL_ALIAS: "idmember"})
+
         # Convert types
         for col in ["deletedat", "status"]:
             df_raw[col] = df_raw[col].replace("", None)
@@ -141,6 +148,13 @@ def main() -> None:
         # ------------------------------------------------------------------ #
         # Aggregation + pipeline
         # ------------------------------------------------------------------ #
+        # Normalizar montos: en fact_transactions los gastos vienen como
+        # negativos (convención débito negativo). Tomamos valor absoluto para
+        # que la agregación opere con cantidades positivas. El filtro ya
+        # garantiza que solo quedan registros tipo gasto.
+        df_filtered = df_filtered.copy()
+        df_filtered["amount"] = df_filtered["amount"].abs()
+
         df_out = prepare_smart_budget_data(df_filtered, min_months=min_months)
 
         unique_members = df_out["idmember"].nunique()
