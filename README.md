@@ -93,19 +93,16 @@ El pipeline genera `data/dough/smart_budget_prep.csv` con las siguientes columna
 | `idcategory` | string | ID numérico de la categoría en `defaultcategory` (FK). Ej: `"8"` = Groceries |
 | `defaultcategory` | string | Nombre de la categoría. Ej: `"Groceries"` |
 | `period_yyyymm` | string | Mes del período. Formato `"YYYY-MM"` |
-| `monthly_total` | float | Suma de gastos del mes, normalizada a valor positivo, clampeada a P90. `0.0` si no hubo gasto ese mes (zero-fill) |
-| `capped` | bool | `True` si el `monthly_total` original superó el umbral P90 global y fue recortado. Útil para auditoría y transparencia downstream. `False` en la mayoría de los casos |
-
-> **Nota sobre `capped`:** el P90 se calcula solo sobre meses con gasto > 0 para no sesgar el umbral hacia cero por los meses zero-filled. Si un mes tiene `monthly_total == 0`, `capped` siempre es `False`.
+| `monthly_total` | float | Suma de gastos del mes, normalizada a valor positivo. `0.0` si no hubo gasto ese mes (zero-fill) |
 
 ### Ejemplo de output
 
 ```
-idclient,idcompany,idaccount,idcategory,defaultcategory,period_yyyymm,monthly_total,capped
-1,1,EXT2,1,Auto & Transport,2025-11,45.50,False
-1,1,EXT2,1,Auto & Transport,2025-12,0.0,False
-1,1,EXT2,8,Groceries,2025-11,120.00,False
-1,1,INT31880,8,Groceries,2025-10,92.02,True
+idclient,idcompany,idaccount,idcategory,defaultcategory,period_yyyymm,monthly_total
+1,1,EXT2,1,Auto & Transport,2025-11,45.50
+1,1,EXT2,1,Auto & Transport,2025-12,0.0
+1,1,EXT2,8,Groceries,2025-11,120.00
+1,1,INT31880,8,Groceries,2025-10,87.50
 ```
 
 
@@ -120,18 +117,24 @@ smart_budget/
 │   │   ├── dev/silver/*.csv            30 tablas DOUGH (dev)
 │   │   ├── alpha/silver/*.csv          23 tablas DOUGH (alpha)
 │   │   ├── fact_transactions.csv       Tabla central: 1,413,914 filas
-│   │   ├── fact_transactions_expenditure.csv   Solo gastos — apto para Excel
-│   │   └── fact_transactions_sample.csv        Muestra 50k filas
+│   │   ├── smart_budget_prep.csv       Output pipeline: datos listos para el modelo
+│   │   └── smart_budget_synthetic.csv  Dataset sintético para testing
 │   └── olb/dev/silver/*.csv            7 tablas OLB dev
 ├── docs/
-│   ├── plan/
-│   │   ├── plan_phase_0.md             Plan de implementación con resultados por step.
-│   │   └── phase0_remaining_tasks.md   Tareas pendientes para producción.
-│   ├── fact_transactions_README.md     Schema y documentación de fact_transactions.
-│   └── glosario.md                     Glosario de términos del proyecto.
-└── scripts/
-    ├── extract_datalake_to_csv.py         Extrae cualquier tabla del datalake S3 → CSV local.
-    └── build_fact_transactions.py      Construye fact_transactions (OLB + DOUGH).
+│   └── fact_transactions_README.md     Schema y documentación de fact_transactions.
+├── scripts/
+│   ├── extract_datalake_to_csv.py      Extrae cualquier tabla del datalake S3 → CSV local.
+│   ├── build_fact_transactions.py      Construye fact_transactions (OLB + DOUGH).
+│   ├── run_smart_budget_prep.py        Pipeline: filtra, agrega y aplica gating.
+│   └── generate_synthetic_dataset.py  Genera dataset sintético para pruebas.
+├── src/smart_budget/
+│   ├── filters.py                      Reglas de filtrado (Posted, Expense, exclusiones).
+│   └── aggregator.py                   Lógica de agregación mensual y gating.
+└── tests/
+    ├── fixtures/fact_transactions_test.csv
+    └── unit/
+        ├── test_filters.py
+        └── test_aggregator.py
 ```
 
 ## Cómo refrescar los datos locales
@@ -162,10 +165,8 @@ python scripts/build_fact_transactions.py --env dev
 
 | Documento | Para qué |
 |---|---|
-| [`docs/plan/plan_phase_0.md`](docs/plan/plan_phase_0.md) | Plan Fase 0 con resultados por step. |
-| [`docs/plan/phase0_remaining_tasks.md`](docs/plan/phase0_remaining_tasks.md) | Tareas pendientes hasta producción (testing, BD, API, compliance). |
 | [`docs/fact_transactions_README.md`](docs/fact_transactions_README.md) | Schema completo de `fact_transactions`: columnas, ids, fuentes. |
-| [`docs/glosario.md`](docs/glosario.md) | Definiciones de términos del proyecto (Dough, Plaid, OLB, RICH, etc.). |
+| [`changes/DATA-1136/plan.md`](changes/DATA-1136/plan.md) | Plan DATA-1136: decisiones, edge cases, fixes de datos aplicados. |
 | [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | Stack, convenciones, restricciones legales, casos edge. |
 
 ## Referencias externas

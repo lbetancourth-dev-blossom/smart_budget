@@ -115,7 +115,6 @@ def build_synthetic_members(
                     "defaultcategory":  cat,
                     "period_yyyymm":    period,
                     "monthly_total":    random_amount(cat, rng),
-                    "capped":           False,
                 })
     return pd.DataFrame(rows)
 
@@ -150,7 +149,6 @@ def enrich_existing_members(
                     "defaultcategory":  cat,
                     "period_yyyymm":    period,
                     "monthly_total":    random_amount(cat, rng),
-                    "capped":           False,
                 })
     return pd.DataFrame(rows)
 

@@ -165,25 +165,14 @@ def main() -> None:
         # ------------------------------------------------------------------ #
         # P90 cap stats
         # ------------------------------------------------------------------ #
-        p90_value = float(df_filtered["amount"].astype(float).quantile(0.90, interpolation="lower")) if len(df_filtered) > 0 else 0.0
-        rows_capped = int(df_out["capped"].sum())
-
-        logger.info(
-            "p90_stats",
-            p90_value=round(p90_value, 4),
-            rows_capped=rows_capped,
-        )
-
         # ------------------------------------------------------------------ #
         # Gating stats
         # ------------------------------------------------------------------ #
-        # Buckets removed = those that were in the aggregated data but not output
-        from smart_budget.aggregator import aggregate_monthly, zero_fill, apply_p90_cap
+        from smart_budget.aggregator import aggregate_monthly, zero_fill
 
         monthly = aggregate_monthly(df_filtered)
         filled = zero_fill(monthly)
-        capped_df = apply_p90_cap(filled)
-        total_buckets_before = capped_df.groupby(["idaccount", "defaultcategory"]).ngroups
+        total_buckets_before = filled.groupby(["idaccount", "defaultcategory"]).ngroups
         total_buckets_after = df_out.groupby(["idaccount", "defaultcategory"]).ngroups
         buckets_removed = total_buckets_before - total_buckets_after
         rows_in_output = len(df_out)

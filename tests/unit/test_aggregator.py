@@ -5,7 +5,6 @@ import pytest
 from smart_budget.aggregator import (
     aggregate_monthly,
     zero_fill,
-    apply_p90_cap,
     apply_gating,
     prepare_smart_budget_data,
 )
@@ -77,27 +76,6 @@ def test_zero_fill_inserts_missing_months():
 
 
 # ---------------------------------------------------------------------------
-# TC-3.4 — apply_p90_cap: P90 cap applied correctly
-# ---------------------------------------------------------------------------
-
-def test_apply_p90_cap():
-    totals = list(range(1, 101))  # 1..100; P90 = 90
-    df = pd.DataFrame({
-        "idclient": ["C1"] * 100,
-        "idcompany": ["CO1"] * 100,
-        "idaccount": [f"M{i}" for i in range(100)],
-        "idcategory": ["5"] * 100,
-        "defaultcategory": ["GROCERIES"] * 100,
-        "period_yyyymm": ["2025-01"] * 100,
-        "monthly_total": [float(t) for t in totals],
-    })
-    result = apply_p90_cap(df)
-    assert result["monthly_total"].max() <= 90.0
-    assert result[result["monthly_total"] == 90.0]["capped"].all()
-    assert not result[result["monthly_total"] < 90.0]["capped"].any()
-
-
-# ---------------------------------------------------------------------------
 # TC-3.5 — apply_gating: exclude buckets with < 3 months
 # ---------------------------------------------------------------------------
 
@@ -109,7 +87,6 @@ def test_apply_gating_excludes_low_data_buckets():
         "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES", "DINING", "DINING"],
         "period_yyyymm": ["2025-01", "2025-02", "2025-03", "2025-01", "2025-02"],
         "monthly_total": [100.0, 80.0, 90.0, 50.0, 60.0],
-        "capped": [False] * 5,
         "idclient": ["C1"] * 5,
         "idcompany": ["CO1"] * 5,
     })
@@ -130,7 +107,6 @@ def test_apply_gating_zero_months_dont_count():
         "defaultcategory": ["GROCERIES"] * 3,
         "period_yyyymm": ["2025-01", "2025-02", "2025-03"],
         "monthly_total": [100.0, 0.0, 80.0],  # Feb is zero-filled
-        "capped": [False] * 3,
         "idclient": ["C1"] * 3,
         "idcompany": ["CO1"] * 3,
     })
@@ -150,7 +126,7 @@ def test_prepare_smart_budget_data_end_to_end():
     # Output column contract
     expected_cols = {
         "idclient", "idcompany", "idaccount", "idcategory", "defaultcategory",
-        "period_yyyymm", "monthly_total", "capped",
+        "period_yyyymm", "monthly_total",
     }
     assert expected_cols.issubset(set(result.columns))
     assert (result["monthly_total"] >= 0).all()
