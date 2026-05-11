@@ -291,7 +291,19 @@ def build_external_transactions(dough: Path) -> pd.DataFrame:
         cat_df = pd.read_csv(default_cat_path, dtype=str)
         cat_df.columns = [c.lower() for c in cat_df.columns]
         cat_map = cat_df.set_index("id")["name"].to_dict()
-        default_category = ext.get("idcategory", pd.Series([""] * len(ext))).astype(str).map(cat_map)
+        # idcategory viene como float (8.0) por pandas; convertir a int-string para coincidir con el índice
+        idcat_str = (
+            pd.to_numeric(ext.get("idcategory"), errors="coerce")
+            .dropna()
+            .astype(int)
+            .astype(str)
+        )
+        idcat_aligned = ext.get("idcategory", pd.Series([None] * len(ext)))
+        idcat_aligned = pd.to_numeric(idcat_aligned, errors="coerce")
+        idcat_aligned = idcat_aligned.apply(
+            lambda v: str(int(v)) if pd.notna(v) else None
+        )
+        default_category = idcat_aligned.map(cat_map)
     else:
         default_category = pd.Series([None] * len(ext))
 
