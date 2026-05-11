@@ -346,8 +346,8 @@ Crear un CSV sintético (~50 filas) que cubra todos los casos edge de los tests.
 - 1 `defaultcategory = 'UNCATEGORIZED'`
 - 1 `defaultcategory = 'INCOME'`
 - 1 OLB con `status = 'PENDING'`
-- 1 External (MANT) con `status = 'PENDING'` (debe excluirse)
-- 1 External (MANT) con `status = 'POSTED'` (debe incluirse)
+- 1 External (EXT / Plaid) con `status = 'PENDING'` (debe excluirse)
+- 1 External (EXT / Plaid) con `status = 'POSTED'` (debe incluirse)
 - Suficientes filas para que M001-GROCERIES tenga 3 meses de data (pasa gating)
 - Suficientes filas para que M001-DINING tenga solo 2 meses (falla gating)
 - 1 fila con amount negativo (REF)

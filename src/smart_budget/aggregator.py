@@ -1,6 +1,5 @@
 """src/smart_budget/aggregator.py — Aggregation pipeline for Smart Budget."""
 import pandas as pd
-import numpy as np
 
 
 def aggregate_monthly(df: pd.DataFrame) -> pd.DataFrame:
