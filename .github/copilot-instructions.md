@@ -429,16 +429,139 @@ Umbral mínimo para pasar a Fase 1: `acceptance_rate + edit_rate > 60%`
 ❌ Apuntar el código a credenciales de prod sin revisión de PII
 ```
 
-## Convenciones de Git
+## Convenciones de Git y GitHub
+
+> Todo el trabajo se rastrea desde Jira. **Cada cambio en el repo debe poder enlazarse a un ticket Jira** (típicamente del proyecto `DATA-`). El repo de GitHub es la implementación; Jira es la verdad sobre qué y por qué.
+
+### 1. Branches
+
+**Naming:** `DATA-{número}` — un solo branch por ticket.
 
 ```
-Ramas:    DATA-{número}        Ej: DATA-1041
-Commits:  DATA-{número}: descripción corta en minúsculas
-          Ej: DATA-1041: construir fact_transactions desde OLB + DOUGH
-PRs:      mismo prefijo que la rama
+✅ DATA-1041
+✅ DATA-1066
+❌ feature/smart-budget          (sin ticket)
+❌ landneyker/fact-transactions  (con nombre personal)
+❌ DATA-1041-fact-transactions   (sufijo descriptivo redundante)
 ```
 
-**Regla:** toda rama y commit debe llevar el nombre del ticket (ej. `DATA-1041`). Sin excepciones.
+- **Origen:** siempre desde `main` actualizada.
+- **Vida útil:** una rama por ticket; cuando el ticket cierra, la rama se borra después del merge.
+- **Sincronización:** si el branch lleva > 1 semana abierto, hacer rebase con `main` (no merge commits).
+
+### 2. Commits
+
+**Formato del subject:** `DATA-{número}: descripción corta en minúsculas` (≤ 72 caracteres).
+
+Ejemplos:
+
+```
+✅ DATA-1041: construir fact_transactions desde OLB + DOUGH
+✅ DATA-1041: agregar suavizado de outliers con winsorización
+✅ DATA-1066: documentar baseline model en plan_phase_0.md
+❌ fix bug                                 (sin ticket)
+❌ DATA-1041: cambios                       (vago)
+❌ DATA-1041: ENORME REFACTOR DE TODO       (mayúsculas, vago)
+```
+
+**Body opcional** (separado por línea en blanco): explica el *por qué*, no el *qué*. Ejemplo:
+
+```
+DATA-1041: cambiar default de ventana N=6 → N=3
+
+El ticket exige ventana por defecto de 3 meses. El default
+anterior asumía 6 según un borrador antiguo del PRD.
+```
+
+**Frecuencia:** preferir commits pequeños y atómicos. El squash al merge los consolida (§5).
+
+### 3. Issues en GitHub vs. tickets Jira
+
+| Caso | Dónde se rastrea |
+|---|---|
+| Tarea DS-ML, feature, deuda técnica con scope claro | **Solo Jira** (`DATA-*`). No duplicar. |
+| Bug del repo que aparece sin ticket previo | Issue en GitHub **+** ticket Jira nuevo. Cross-reference ambos. |
+| Refactor o tooling local sin impacto de producto | Issue en GitHub está bien sin Jira. |
+
+**Regla:** si existe ticket Jira, el Issue de GitHub debe linkearlo en la **primera línea** de la descripción:
+
+```
+Tracked in https://blossomtechnology.atlassian.net/browse/DATA-1041
+```
+
+### 4. Pull Requests
+
+**Título:** `DATA-{número}: descripción consolidada del cambio`.
+
+```
+✅ DATA-1041: pipeline Fase 0 — modelo de mediana sobre fact_transactions
+✅ DATA-1066: documentación baseline + dataset preparation
+```
+
+**Descripción obligatoria** (plantilla recomendada en `.github/pull_request_template.md`):
+
+```markdown
+## Ticket
+https://blossomtechnology.atlassian.net/browse/DATA-{número}
+
+## Qué cambia
+- Refactor de `filters.py` al schema `fact_transactions`
+- Implementación de `weighted_avg` como método alternativo
+- ...
+
+## Cómo testear
+1. `python scripts/run_phase0.py --period 2026-05 --method median`
+2. Verificar que `data/dough/test/query/budget.csv` se genera
+
+## Riesgos / impacto
+- Cambia contrato JSON: `confidence` ahora es opcional
+- No toca código de producción (Fase 0 = validación)
+
+## Checklist
+- [ ] Tests pasan localmente
+- [ ] Documentación actualizada en `docs/`
+- [ ] Decision Record creado si aplica (`docs/decisions/`)
+- [ ] Sin PII en commits
+```
+
+**Reviewers:**
+
+- Al menos **1 reviewer** del equipo DS-ML.
+- Si el cambio toca **`filters.py` / `aggregator.py` / queries SQL**, review obligatorio (impacta el modelo).
+- Si toca **schemas o contratos JSON** del output, agregar review de Backend Dough.
+
+**Self-review:** antes de pedir review, leer el diff completo en GitHub UI.
+
+### 5. Estrategia de merge
+
+**Squash and merge** (default — mantiene `main` limpio).
+
+- El subject del squash commit conserva el formato `DATA-{número}: descripción consolidada` (igual al título del PR).
+- El body retiene la lista de commits originales (GitHub la arma automáticamente; revisar antes de confirmar).
+- **No usar merge commits** ni **rebase-and-merge** salvo casos justificados (ej. preservar historial de varios autores).
+
+**Después del merge:**
+
+1. Borrar el branch remoto (GitHub UI lo ofrece automáticamente).
+2. Borrar el branch local: `git branch -d DATA-1041`.
+3. Actualizar el ticket Jira a "Ready for review" o "Done" según corresponda. Comentar en el ticket con el link al PR mergeado.
+
+### 6. Reglas de protección de `main`
+
+- ❌ Commits directos a `main`.
+- ✅ Todo cambio entra vía Pull Request.
+- ✅ CI debe pasar (cuando exista pipeline de CI).
+- ✅ Al menos 1 approval antes de mergear.
+- ✅ Branch al día con `main` (sin conflictos pendientes).
+
+### 7. Tags y releases
+
+Fase 0 no requiere releases formales. Cuando se llegue a Fase 1+, considerar tags semánticos:
+
+```
+v0.1.0-fase0   → primera versión funcional Fase 0
+v0.2.0-fase1   → arranque de Fase 1
+```
 
 ---
 

@@ -60,3 +60,6 @@ Thumbs.db
 target/
 dbt_packages/
 logs/
+.worktrees/
+changes/*/.session-state.json
+changes/*/.execute-progress.log
