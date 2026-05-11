@@ -46,7 +46,7 @@ def test_filter_removes_income_transactions():
 # TC-2.3 — Invalid category exclusion
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("category", ["UNCATEGORIZED", None, "INCOME"])
+@pytest.mark.parametrize("category", ["UNCATEGORIZED", None, "INCOME", "MONEY_SENT"])
 def test_filter_removes_invalid_categories(category):
     df = pd.DataFrame({
         "deletedat": [None, None],

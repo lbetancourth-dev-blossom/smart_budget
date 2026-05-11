@@ -30,8 +30,11 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df["incomeexpenditure"] == "expenditure"]
 
     # Rule 3 — A4: valid categories only
+    # MONEY_SENT excluido: label legacy OLB (Ntropy), equivale a Internal Transfers
+    # (grupo 3 = Excluded en defaultcategory). No es gasto discrecional presupuestable.
+    EXCLUDED_CATEGORIES = {"UNCATEGORIZED", "INCOME", "MONEY_SENT"}
     df = df[df["defaultcategory"].notna()]
-    df = df[~df["defaultcategory"].isin(["UNCATEGORIZED", "INCOME"])]
+    df = df[~df["defaultcategory"].isin(EXCLUDED_CATEGORIES)]
 
     # Rules 4 & 5 — A5/A6: status filter by transaction source (idtransaction prefix)
     # OLB (SUB/LOAN): status NULL o no PENDING/HOLD
