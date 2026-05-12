@@ -190,13 +190,14 @@ def compute_budget_suggestions(
     method: str,
     treatment: str,
     reference_date: str,
+    lookback_months: int | None = None,
     ewma_span: int = EWMA_SPAN_DEFAULT,
     epsilon: float = EPSILON_DEFAULT,
 ) -> list[dict]:
     """
     Función principal. Pipeline por bucket (idaccount × idcategory × defaultcategory):
 
-    1. Filtrar df a meses <= month(reference_date)
+    1. Filtrar df a los N meses anteriores a reference_date (inclusive)
     2. PRE-treatment basis extraction
     3. apply_treatment
     4. If treatment B and all zeros → null suggestion
@@ -205,6 +206,11 @@ def compute_budget_suggestions(
     7. Clamp negative to 0, round to 2 decimals
     8. Build explanation
     9. Build JSON dict
+
+    Args:
+        lookback_months: ventana de meses hacia atrás desde reference_date (inclusive).
+            None = usar todos los meses disponibles hasta reference_date.
+            Ej: lookback_months=3 con reference_date="2026-05-01" usa: 2026-03, 2026-04, 2026-05.
 
     Raises:
         ValueError: si method no está en {"wma", "ewma", "holt_winters"}.
@@ -215,12 +221,16 @@ def compute_budget_suggestions(
     if df.empty:
         return []
 
-    # Step 1: filter to months <= month(reference_date)
-    # The reference month itself IS included (<= is intentional per spec §T1.7 step 1).
+    # Step 1: filter to months dentro de la ventana de lookback_months hasta reference_date.
+    # El mes de reference_date ES incluido (<= es intencional).
     ref_period = pd.Period(reference_date, freq="M")
     df = df.copy()
     df["_period"] = pd.PeriodIndex(df["period_yyyymm"], freq="M")
-    df = df[df["_period"] <= ref_period].drop(columns=["_period"])
+    df = df[df["_period"] <= ref_period]
+    if lookback_months is not None:
+        start_period = ref_period - lookback_months + 1
+        df = df[df["_period"] >= start_period]
+    df = df.drop(columns=["_period"])
 
     if df.empty:
         return []

@@ -75,6 +75,19 @@ def _parse_args(argv=None):
         help="Output JSON path (default: stdout)",
     )
     parser.add_argument(
+        "--lookback-months",
+        type=int,
+        default=None,
+        dest="lookback_months",
+        metavar="N",
+        help=(
+            "Ventana de meses hacia atrás desde reference_date (inclusive). "
+            "Default: todos los meses disponibles. "
+            "Ej: --lookback-months 3 con --reference-date 2026-05-01 "
+            "usa: 2026-03, 2026-04, 2026-05."
+        ),
+    )
+    parser.add_argument(
         "--min-months",
         type=int,
         default=3,
@@ -91,6 +104,7 @@ def main(argv=None):
         method=args.method,
         treatment=args.treatment,
         reference_date=args.reference_date,
+        lookback_months=args.lookback_months,
         input_path=args.input,
     )
     log.info("run_methods.start")
@@ -107,6 +121,7 @@ def main(argv=None):
         method=args.method,
         treatment=args.treatment,
         reference_date=args.reference_date,
+        lookback_months=args.lookback_months,
     )
 
     # Step 4: serialize
