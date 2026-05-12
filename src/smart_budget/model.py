@@ -216,8 +216,7 @@ def compute_budget_suggestions(
         return []
 
     # Step 1: filter to months <= month(reference_date)
-    # The current month (containing reference_date) is EXCLUDED;
-    # only months strictly before reference_date month.
+    # The reference month itself IS included (<= is intentional per spec §T1.7 step 1).
     ref_period = pd.Period(reference_date, freq="M")
     df = df.copy()
     df["_period"] = pd.PeriodIndex(df["period_yyyymm"], freq="M")
@@ -228,7 +227,6 @@ def compute_budget_suggestions(
 
     results = []
     bucket_keys = ["idaccount", "idcategory", "defaultcategory"]
-    meta_keys = ["idclient", "idcompany"]
 
     for bucket, df_bucket in df.groupby(bucket_keys, sort=True):
         idaccount, idcategory, defaultcategory = bucket
