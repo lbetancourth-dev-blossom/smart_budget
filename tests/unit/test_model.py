@@ -431,8 +431,41 @@ def test_TC4_8_json_contract_fields():
 
 
 # ---------------------------------------------------------------------------
-# T2.1 — CLI importable
+# T3.1 — Golden set
 # ---------------------------------------------------------------------------
+
+def test_TC4_golden_set_matches_output():
+    """TC-4.8 golden: WMA/A/2026-03-01 output matches committed golden_set.csv exactly."""
+    import pathlib
+    import pandas as pd
+
+    from tests.conftest import _load_fixture
+    from smart_budget.aggregator import apply_gating
+    from smart_budget.model import compute_budget_suggestions
+
+    golden = _load_fixture("golden_set.csv")
+    golden["suggested_amount"] = golden["suggested_amount"].astype(float)
+
+    # Load source data and apply gating
+    data_path = pathlib.Path(__file__).parent.parent.parent / "data" / "dough" / "smart_budget_synthetic.csv"
+    raw_df = pd.read_csv(data_path)
+    prepared_df = apply_gating(raw_df, min_months=3)
+
+    results = compute_budget_suggestions(prepared_df, method="wma", treatment="A", reference_date="2026-03-01")
+    results_map = {
+        (r["idaccount"], r["category_id"], r["defaultcategory"]): r["suggested_amount"]
+        for r in results
+    }
+
+    for _, row in golden.iterrows():
+        key = (row["idaccount"], row["category_id"], row["defaultcategory"])
+        assert key in results_map, f"Bucket {key} missing from output"
+        expected = float(row["suggested_amount"])
+        actual = results_map[key]
+        assert actual == expected, (
+            f"Bucket {key}: expected {expected}, got {actual}"
+        )
+
 
 def test_run_methods_importable():
     """scripts/run_methods.py is parseable (no ImportError or SyntaxError)."""
