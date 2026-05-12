@@ -15,12 +15,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+
+# Allow running directly: python scripts/run_methods.py
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
 import pandas as pd
 import structlog
 
-from smart_budget.aggregator import prepare_smart_budget_data
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.dev.ConsoleRenderer(),
+    ]
+)
+
+from smart_budget.aggregator import apply_gating
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
@@ -84,8 +95,8 @@ def main(argv=None):
     # Step 1: read CSV
     raw_df = pd.read_csv(args.input)
 
-    # Step 2: prepare data through aggregation + zero-fill + gating pipeline
-    prepared_df = prepare_smart_budget_data(raw_df, min_months=args.min_months)
+    # Step 2: apply gating (CSV is already aggregated monthly data)
+    prepared_df = apply_gating(raw_df, min_months=args.min_months)
 
     # Step 3: compute suggestions
     results = compute_budget_suggestions(
