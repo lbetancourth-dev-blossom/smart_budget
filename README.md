@@ -106,6 +106,7 @@ idclient,idcompany,idaccount,idcategory,defaultcategory,period_yyyymm,monthly_to
 ```
 
 
+## Estructura del repo
 
 ```
 smart_budget/
@@ -136,7 +137,6 @@ smart_budget/
         ├── test_filters.py
         └── test_aggregator.py
 ```
-
 ## Cómo refrescar los datos locales
 
 Requiere AWS CLI con perfil `blossom-dev` y SSO activo.
