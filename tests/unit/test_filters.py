@@ -1,4 +1,4 @@
-"""tests/unit/test_filters.py — Unit tests for smart_budget.filters (TC-2.1 through TC-2.7)."""
+"""tests/unit/test_filters.py — Unit tests for smart_budget.filters (TC-2.1 through TC-2.8)."""
 import pytest
 import pandas as pd
 
@@ -110,8 +110,22 @@ def test_filter_combined_rules():
 
 
 # ---------------------------------------------------------------------------
-# TC-2.7 — Empty DataFrame does not raise
+# TC-2.8 — Unknown prefix passes through (no silent data loss)
 # ---------------------------------------------------------------------------
+
+def test_filter_unknown_prefix_passes_through():
+    """Transactions with an unknown prefix (not SUB/LOAN/EXT) must not be silently dropped."""
+    df = pd.DataFrame({
+        "deletedat": [None, None],
+        "incomeexpenditure": ["expenditure", "expenditure"],
+        "defaultcategory": ["GROCERIES", "DINING"],
+        "idtransaction": ["ACH_001", "WIRE_002"],
+        "status": ["POSTED", None],
+        "amount": [120.0, 80.0],
+    })
+    result = filter_transactions(df)
+    assert len(result) == 2, "Unknown prefixes must not be excluded by status rules"
+
 
 def test_filter_empty_dataframe():
     df = pd.DataFrame(columns=["deletedat", "incomeexpenditure", "defaultcategory",

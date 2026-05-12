@@ -37,14 +37,15 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
     df = df[~df["defaultcategory"].isin(EXCLUDED_CATEGORIES)]
 
     # Rules 4 & 5 — A5/A6: status filter by transaction source (idtransaction prefix)
-    # OLB (SUB/LOAN): status NULL o no PENDING/HOLD
-    # External Dough (EXT, via Plaid/Finicity): status == 'POSTED' (case-insensitive)
+    # OLB (SUB/LOAN): exclude if status IN ('PENDING', 'HOLD')
+    # External Dough (EXT, via Plaid/Finicity): exclude if status != 'POSTED'
+    # Unknown prefixes: pass through (no status rule defined yet — avoids silent data loss)
     is_olb = df["idtransaction"].str.startswith(("SUB", "LOAN"))
     is_ext = df["idtransaction"].str.startswith("EXT")
 
-    olb_ok = is_olb & (df["status"].isna() | ~df["status"].str.upper().isin(["PENDING", "HOLD"]))
-    ext_ok = is_ext & (df["status"].str.upper() == "POSTED")
+    olb_invalid = is_olb & df["status"].notna() & df["status"].str.upper().isin(["PENDING", "HOLD"])
+    ext_invalid = is_ext & (df["status"].str.upper() != "POSTED")
 
-    df = df[olb_ok | ext_ok]
+    df = df[~(olb_invalid | ext_invalid)]
 
     return df.reset_index(drop=True)
