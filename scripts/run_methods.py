@@ -4,7 +4,8 @@ Usage:
     python scripts/run_methods.py \\
         --method wma \\
         --treatment A \\
-        --reference-date 2026-03-01 \\
+        --reference-date 2026-05 \\
+        [--lookback-months 3] \\
         [--input data/dough/smart_budget_synthetic.csv] \\
         [--output results.json] \\
         [--min-months 3]
@@ -59,8 +60,11 @@ def _parse_args(argv=None):
     parser.add_argument(
         "--reference-date",
         required=True,
-        metavar="YYYY-MM-DD",
-        help="Cutoff date — months up to and including this month are used",
+        metavar="YYYY-MM",
+        help=(
+            "Mes de referencia (inclusive). Acepta YYYY-MM o YYYY-MM-DD. "
+            "Ej: 2026-05 o 2026-05-01"
+        ),
     )
     parser.add_argument(
         "--input",
@@ -97,13 +101,28 @@ def _parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def _normalize_reference_date(value: str) -> str:
+    """Acepta YYYY-MM o YYYY-MM-DD y devuelve siempre YYYY-MM."""
+    parts = value.strip().split("-")
+    if len(parts) < 2:
+        raise ValueError(f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM")
+    try:
+        year, month = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise ValueError(f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM")
+    if year < 2000 or month < 1 or month > 12:
+        raise ValueError(f"--reference-date fuera de rango: {value!r}")
+    return f"{year:04d}-{month:02d}"
+
+
 def main(argv=None):
     args = _parse_args(argv)
+    reference_date = _normalize_reference_date(args.reference_date)
 
     log = logger.bind(
         method=args.method,
         treatment=args.treatment,
-        reference_date=args.reference_date,
+        reference_date=reference_date,
         lookback_months=args.lookback_months,
         input_path=args.input,
     )
@@ -120,7 +139,7 @@ def main(argv=None):
         prepared_df,
         method=args.method,
         treatment=args.treatment,
-        reference_date=args.reference_date,
+        reference_date=reference_date,
         lookback_months=args.lookback_months,
     )
 
