@@ -24,11 +24,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import pandas as pd
 import structlog
 
+import sys as _sys
+
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.dev.ConsoleRenderer(),
-    ]
+    ],
+    logger_factory=structlog.PrintLoggerFactory(file=_sys.stderr),
 )
 
 from smart_budget.aggregator import apply_gating
