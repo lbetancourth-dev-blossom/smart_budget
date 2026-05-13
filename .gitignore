@@ -50,6 +50,12 @@ aws-credentials*
 .DS_Store
 Thumbs.db
 
+# ── Coverage ──────────────────────────────────────────────────────────────────
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # ── IDEs ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
