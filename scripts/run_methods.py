@@ -48,7 +48,7 @@ def _parse_args(argv=None):
     parser.add_argument(
         "--method",
         required=True,
-        choices=["wma", "ewma", "holt_winters"],
+        choices=["wma", "ewma", "holt_winters", "median"],
         help="Forecasting method to use",
     )
     parser.add_argument(

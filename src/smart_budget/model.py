@@ -86,7 +86,37 @@ def compute_ewma(series: pd.Series, span: int = EWMA_SPAN_DEFAULT) -> float:
     return round(max(0.0, value), 2)
 
 
+def compute_median(series: pd.Series) -> float:
+    """
+    Mediana simple sobre la serie cronológica.
+
+    Raises:
+        ValueError: si series está vacía.
+    """
+    if len(series) == 0:
+        raise ValueError("compute_median: series must not be empty")
+
+    value = float(series.median())
+    return round(max(0.0, value), 2)
+
+
 def compute_holt_winters(series: pd.Series) -> float:
+    """
+    Holt-Winters con ExponentialSmoothing(trend='add', seasonal=None).
+
+    Raises:
+        ValueError: si series tiene menos de 3 observaciones.
+    """
+    if len(series) < 3:
+        raise ValueError(
+            f"compute_holt_winters: need at least 3 observations, got {len(series)}"
+        )
+
+    model = ExponentialSmoothing(series, trend="add", seasonal=None)
+    fit = model.fit()
+    forecast = fit.forecast(1)
+    value = float(forecast.iloc[0])
+    return round(max(0.0, value), 2)
     """
     Holt-Winters con ExponentialSmoothing(trend='add', seasonal=None).
 
@@ -213,10 +243,10 @@ def compute_budget_suggestions(
             Ej: lookback_months=3 con reference_date="2026-05-01" usa: 2026-03, 2026-04, 2026-05.
 
     Raises:
-        ValueError: si method no está en {"wma", "ewma", "holt_winters"}.
+        ValueError: si method no está en {"wma", "ewma", "holt_winters", "median"}.
     """
-    if method not in {"wma", "ewma", "holt_winters"}:
-        raise ValueError(f"method must be one of 'wma', 'ewma', 'holt_winters' — got {method!r}")
+    if method not in {"wma", "ewma", "holt_winters", "median"}:
+        raise ValueError(f"method must be one of 'wma', 'ewma', 'holt_winters', 'median' — got {method!r}")
 
     if df.empty:
         return []
@@ -283,6 +313,8 @@ def compute_budget_suggestions(
                 value = compute_wma(series)
             elif method == "ewma":
                 value = compute_ewma(series, span=ewma_span)
+            elif method == "median":
+                value = compute_median(series)
             else:  # holt_winters
                 value = compute_holt_winters(series)
         except ValueError:
