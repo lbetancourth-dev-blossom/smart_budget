@@ -413,6 +413,7 @@ _EXPECTED_GRID_COLUMNS = {
     "mae_regular",
     "n_seasonal",
     "n_regular",
+    "crws",
 }
 
 

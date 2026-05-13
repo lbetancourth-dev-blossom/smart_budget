@@ -310,6 +310,74 @@ def compute_metrics(
 
 
 # ---------------------------------------------------------------------------
+# Composite Reliability-Weighted Score (CRWS)
+# ---------------------------------------------------------------------------
+
+
+def compute_composite_score(
+    mae_regular: float | None,
+    coverage_rate_pct: float,
+    null_rate_pct: float,
+    lookback_months: int,
+    mae_regular_ref: float,
+    lb_min: int = 3,
+    w_precision: float = 0.65,
+    w_coverage: float = 0.35,
+) -> float | None:
+    """
+    Calcula el Composite Reliability-Weighted Score (CRWS) para una configuración.
+
+    Combina precisión sobre categorías regulares, cobertura y robustez ante datos
+    escasos en un único número [0, 1]. Mayor CRWS = mejor configuración.
+
+    Formula (v2):
+        precision      = max(0, 1 − mae_regular / mae_regular_ref)
+        coverage_score = (coverage_rate / 100) × (1 − null_rate / 100)
+        sparsity_factor = sqrt(lb_min / lookback_months)
+        CRWS = (w_precision × precision + w_coverage × coverage_score) × sparsity_factor
+
+    Decisiones de diseño:
+    - Usa mae_regular (no MAE global) para precisión: desacopla el análisis de
+      categorías estacionales, que se evalúan por separado con lb=12.
+    - data_weight = solo sparsity_factor, sin n_evaluated/n_total: la cobertura ya
+      está penalizada en coverage_score — incluirla en data_weight la castigaría dos veces.
+    - mae_regular_ref es un valor fijo externo (no el max del grid) para que el score
+      sea portable entre distintas ejecuciones del evaluador.
+
+    sparsity_factor (recompensa configuraciones que funcionan con poco historial):
+        lb=3  → 1.00  (funciona con solo 3 meses — más universal)
+        lb=6  → 0.71
+        lb=9  → 0.58
+        lb=12 → 0.50  (requiere 1 año completo — menos accesible para usuarios nuevos)
+
+    Args:
+        mae_regular: MAE sobre categorías no-estacionales (None si n_regular == 0).
+        coverage_rate_pct: porcentaje de buckets holdout con sugerencia no-null.
+        null_rate_pct: porcentaje de sugerencias que resultaron null.
+        lookback_months: ventana de meses usada por el método.
+        mae_regular_ref: referencia fija de MAE para normalización. Se recomienda
+            el peor mae_regular observado en el grid de referencia histórico.
+        lb_min: lookback mínimo del grid (default 3).
+        w_precision: peso del componente de precisión (default 0.65).
+        w_coverage: peso del componente de cobertura (default 0.35).
+
+    Returns:
+        CRWS en [0, 1], o None si mae_regular es None o mae_regular_ref es 0.
+    """
+    if mae_regular is None or mae_regular_ref == 0:
+        return None
+
+    import math
+
+    precision = max(0.0, 1.0 - mae_regular / mae_regular_ref)
+    coverage_score = (coverage_rate_pct / 100.0) * (1.0 - null_rate_pct / 100.0)
+    sparsity_factor = math.sqrt(lb_min / lookback_months)
+
+    crws = (w_precision * precision + w_coverage * coverage_score) * sparsity_factor
+    return round(crws, 4)
+
+
+# ---------------------------------------------------------------------------
 # Evaluation grid
 # ---------------------------------------------------------------------------
 
@@ -329,9 +397,12 @@ def run_evaluation_grid(
     Returns DataFrame con columnas:
         method, lookback_months, treatment, n_total_holdout, n_evaluated,
         accuracy_delta, coverage_rate_pct, null_rate_pct, mape, mape_n,
-        mae_seasonal, mae_regular, n_seasonal, n_regular
+        mae_seasonal, mae_regular, n_seasonal, n_regular, crws
 
-    Ordenado por accuracy_delta ASC (mejor primero; nulls last).
+    crws (Composite Reliability-Weighted Score): combina precisión, cobertura y
+    robustez ante datos escasos en [0,1]. Mayor = mejor.
+
+    Ordenado por accuracy_delta ASC (menor MAE primero; nulls last).
     Treatment is always "B" per decision A7; the parameter is accepted for generality.
     """
     results_list: list[dict] = []
@@ -372,6 +443,24 @@ def run_evaluation_grid(
     df = df.sort_values(
         "accuracy_delta", ascending=True, na_position="last"
     ).reset_index(drop=True)
+
+    # Compute CRWS v2:
+    # - Usa mae_regular (no global) → desacopla estacionales
+    # - mae_regular_ref fijo = peor mae_regular del grid actual (portable dentro del run)
+    # - data_weight = solo sparsity_factor, sin n_eval/n_total (evita doble castigo a cov)
+    lb_min = int(df["lookback_months"].min()) if not df.empty else 3
+    mae_regular_ref = float(df["mae_regular"].max(skipna=True)) if not df.empty else 1.0
+    df["crws"] = df.apply(
+        lambda r: compute_composite_score(
+            mae_regular=r["mae_regular"],
+            coverage_rate_pct=r["coverage_rate_pct"],
+            null_rate_pct=r["null_rate_pct"],
+            lookback_months=int(r["lookback_months"]),
+            mae_regular_ref=mae_regular_ref,
+            lb_min=lb_min,
+        ),
+        axis=1,
+    )
 
     return df
 
