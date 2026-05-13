@@ -330,7 +330,7 @@ def compute_composite_score(
     Combina precisión sobre categorías regulares, cobertura y robustez ante datos
     escasos en un único número [0, 1]. Mayor CRWS = mejor configuración.
 
-    Formula (v2):
+    Formula:
         precision      = max(0, 1 − mae_regular / mae_regular_ref)
         coverage_score = (coverage_rate / 100) × (1 − null_rate / 100)
         sparsity_factor = sqrt(lb_min / lookback_months)
@@ -444,7 +444,7 @@ def run_evaluation_grid(
         "accuracy_delta", ascending=True, na_position="last"
     ).reset_index(drop=True)
 
-    # Compute CRWS v2:
+    # Compute CRWS:
     # - Usa mae_regular (no global) → desacopla estacionales
     # - mae_regular_ref fijo = peor mae_regular del grid actual (portable dentro del run)
     # - data_weight = solo sparsity_factor, sin n_eval/n_total (evita doble castigo a cov)

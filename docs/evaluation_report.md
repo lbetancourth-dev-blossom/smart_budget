@@ -13,7 +13,7 @@ El objetivo de DATA-1138 es determinar, mediante evaluación formal con holdout 
 
 El análisis exploratorio previo (DATA-1137, `docs/method_comparison.md`) eligió WMA-B lb=6 sin medir el error de predicción contra actuals reales. Este reporte corrige esa limitación: aplica un split temporal estándar, mide MAE contra actuals conocidas, y selecciona el método con base en evidencia empírica.
 
-**Resultado:** Median-B lb=6 reemplaza a WMA-B lb=6 como método recomendado para Fase 0, con un MAE 2.3 % inferior (91.31 vs 93.47). El CRWS v2 señala a EWMA lb=6 como alternativa superior en categorías regulares (mae_regular=44.20 vs 57.04); la selección de Median lb=6 se mantiene por su mejor desempeño en categorías estacionales (mae_seasonal=385 vs 396).
+**Resultado:** Median-B lb=6 reemplaza a WMA-B lb=6 como método recomendado para Fase 0, con un MAE 2.3 % inferior (91.31 vs 93.47). El CRWS señala a EWMA lb=6 como alternativa superior en categorías regulares (mae_regular=44.20 vs 57.04); la selección de Median lb=6 se mantiene por su mejor desempeño en categorías estacionales (mae_seasonal=385 vs 396).
 
 ---
 
@@ -186,11 +186,11 @@ mae_regular = MAE calculado sobre todos los buckets
 
 Representa el error del modelo en el **grueso de las categorías cotidianas** (Groceries, Gas, Food & Dining, etc.). Es el número más relevante para la experiencia de usuario típica, dado que la mayoría de las categorías de un presupuesto mensual son regulares.
 
-**Referencia:** para Median-B lb=6, `mae_regular = 57.04` ($57 de error promedio en categorías de gasto frecuente). EWMA produce el mae_regular más bajo en lb=6 (44.20), lo que explica su ventaja en el CRWS v2 — ver §4 y §5.
+**Referencia:** para Median-B lb=6, `mae_regular = 57.04` ($57 de error promedio en categorías de gasto frecuente). EWMA produce el mae_regular más bajo en lb=6 (44.20), lo que explica su ventaja en el CRWS — ver §4 y §5.
 
 ---
 
-### crws — Composite Reliability-Weighted Score · métrica compuesta (v2)
+### crws — Composite Reliability-Weighted Score · métrica compuesta
 
 ```
 mae_regular_ref  = max(mae_regular en el grid)   ← referencia fija dentro del run
@@ -205,9 +205,9 @@ Combina en un único número `[0, 1]` las tres propiedades que importan simultá
 
 **El problema que resuelve:** el MAE global no responde la pregunta "¿qué método usar si muchos de mis usuarios tienen solo 3 meses de historial?". Una configuración con MAE=91 y lb=6 puede ser peor en producción real que una con MAE=51 y lb=3, si la base de usuarios tiene historial corto. El CRWS captura esta realidad.
 
-**Tres decisiones de diseño respecto a una versión inicial:**
+**Tres decisiones de diseño:**
 
-| Decisión | Versión inicial | CRWS v2 | Por qué |
+| Decisión | Alternativa descartada | Elegida | Por qué |
 |---|---|---|---|
 | Base de precisión | MAE global | `mae_regular` | Desacopla categorías estacionales, que se evalúan por separado con lb=12 |
 | Referencia de normalización | `MAE_worst` dinámico del grid | `max(mae_regular)` del run | Más portable; no cambia si se agrega/quita un método del grid |
@@ -232,7 +232,7 @@ La raíz cuadrada suaviza el castigo — no es lineal para no penalizar excesiva
 
 ## 4. Resultados — tabla completa (16 configuraciones)
 
-Ordenadas por `accuracy_delta` ASC (menor MAE global primero). CRWS v2 calculado con `mae_regular_ref = 66.14` (peor `mae_regular` del grid: wma lb=12).
+Ordenadas por `accuracy_delta` ASC (menor MAE global primero). CRWS calculado con `mae_regular_ref = 66.14` (peor `mae_regular` del grid: wma lb=12).
 
 | método | lb | n_eval | MAE | cov% | null% | MAPE | mae_seasonal | mae_regular | CRWS |
 |---|---|---|---|---|---|---|---|---|---|
@@ -267,7 +267,7 @@ Ordenadas por `accuracy_delta` ASC (menor MAE global primero). CRWS v2 calculado
 
 - **null_rate de lb=6 (1.47 %):** equivale a 1 bucket de 68 que no logra sugerencia. Es un caso borde del gating, no un problema sistémico.
 
-**Ranking por CRWS v2** (mejor configuración universal primero):
+**Ranking por CRWS** (mejor configuración universal primero):
 
 | # | método | lb | MAE | mae_regular | null% | CRWS | Escenario óptimo |
 |---|---|---|---|---|---|---|---|
@@ -354,19 +354,19 @@ Los lb=3 muestran mae_seasonal bajo (176–177) porque con solo 3 meses de histo
 | MAPE (actuals > 0) | 31.99 % (51 buckets) |
 | mae_regular | 57.04 |
 | mae_seasonal | **385.04** (mejor entre métodos lb=6 con baja nulidad) |
-| CRWS v2 | 0.2870 |
+| CRWS | 0.2870 |
 
 **Justificación:**
 
 - **Mejor mae_seasonal entre configuraciones lb=6 con null_rate ≤ 2 %:** 385.04 vs 395.66 (EWMA lb=6) y 428.32 (WMA lb=6). Las categorías estacionales (Travel & Trips, Gifts & Donations, Education) representan el gasto de mayor monto unitario para muchos usuarios — el error en dólares tiene alto impacto percibido.
-- **CRWS v2 señala a EWMA lb=6 como superior en categorías regulares** (CRWS=0.3763 vs 0.2870; mae_regular=44.20 vs 57.04). Esta diferencia es real y documenta una ventaja de EWMA para el gasto frecuente.
+- **CRWS señala a EWMA lb=6 como superior en categorías regulares** (CRWS=0.3763 vs 0.2870; mae_regular=44.20 vs 57.04). Esta diferencia es real y documenta una ventaja de EWMA para el gasto frecuente.
 - **null_rate = 1.47 % (1 bucket en 68) no es sistémico** — corresponde a un caso borde del gating, no a un defecto del método. Con datos de producción el número puede variar pero permanece cercano a cero.
 - **Robustez de la mediana:** menos sensible a meses outlier (pago extraordinario de vacaciones, regalo de boda) que los métodos ponderados por recencia.
 - **Interpretabilidad:** la mediana de los últimos N meses es explicable en `display_label` ("Basado en el gasto típico de tus últimos 6 meses"), cumpliendo la restricción UDAAP/CFPB de neutralidad descriptiva.
 
 ### Implicación para Fase 1
 
-El hallazgo más relevante del CRWS v2 es la **ventaja sistemática de EWMA en mae_regular** (+22 % frente a Median lb=6). Se recomienda evaluar EWMA lb=6 como método alternativo en Fase 1, especialmente para CUs cuya base de usuarios tenga pocas categorías estacionales.
+El hallazgo más relevante del CRWS es la **ventaja sistemática de EWMA en mae_regular** (+22 % frente a Median lb=6). Se recomienda evaluar EWMA lb=6 como método alternativo en Fase 1, especialmente para CUs cuya base de usuarios tenga pocas categorías estacionales.
 
 ### Configuración secundaria para categorías estacionales
 
@@ -429,7 +429,7 @@ wma,3,...,48.63,...,0.5372       ← menor MAE global (null_rate=7.35% — no el
 ewma,3,...,50.53,...,0.5174
 median,3,...,52.70,...,0.4947
 ...
-ewma,6,...,80.92,...,0.3763      ← mejor CRWS v2 entre null_rate ≤ 2%
+ewma,6,...,80.92,...,0.3763      ← mejor CRWS entre null_rate ≤ 2%
 ...
 median,6,...,91.31,...,0.2870    ← método seleccionado (mejor mae_seasonal en lb=6)
 ```
