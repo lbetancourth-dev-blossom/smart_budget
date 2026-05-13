@@ -13,6 +13,7 @@ Outputs a 16-row CSV (4 methods × 4 lookbacks) with evaluation metrics.
 Default dataset: smart_budget_synthetic.csv — 804 rows, sha256 documented in
 evaluation_report.md.  Requires the data file to be present locally (gitignored).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +21,9 @@ import os
 import sys
 
 # Allow running directly: python scripts/eval_runner.py
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+)
 
 import pandas as pd
 import structlog
@@ -35,8 +38,8 @@ structlog.configure(
     logger_factory=structlog.PrintLoggerFactory(file=_sys.stderr),
 )
 
-from smart_budget.aggregator import apply_gating
-from smart_budget.model import compute_budget_suggestions
+from smart_budget.aggregator import apply_gating  # noqa: E402
+from smart_budget.model import compute_budget_suggestions  # noqa: E402
 
 logger = structlog.get_logger()
 
@@ -60,11 +63,15 @@ def _normalize_reference_date(value: str) -> str:
     """Acepta YYYY-MM o YYYY-MM-DD y devuelve siempre YYYY-MM."""
     parts = value.strip().split("-")
     if len(parts) < 2:
-        raise ValueError(f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM")
+        raise ValueError(
+            f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM"
+        )
     try:
         year, month = int(parts[0]), int(parts[1])
     except ValueError:
-        raise ValueError(f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM")
+        raise ValueError(
+            f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM"
+        )
     if year < 2000 or month < 1 or month > 12:
         raise ValueError(f"--reference-date fuera de rango: {value!r}")
     return f"{year:04d}-{month:02d}"
@@ -221,7 +228,11 @@ def compute_metrics(
     # Build lookup: (idaccount, idcategory, defaultcategory) → monthly_total
     actuals_lookup: dict[tuple[str, str, str], float] = {}
     for _, row in actuals_df.iterrows():
-        key = (str(row["idaccount"]), str(row["idcategory"]), str(row["defaultcategory"]))
+        key = (
+            str(row["idaccount"]),
+            str(row["idcategory"]),
+            str(row["defaultcategory"]),
+        )
         actuals_lookup[key] = float(row["monthly_total"])
 
     n_suggestions: int = len(suggestions)
@@ -358,9 +369,9 @@ def run_evaluation_grid(
     df = pd.DataFrame(results_list)
 
     # Sort by accuracy_delta ASC (lowest MAE first); NaN rows go last
-    df = df.sort_values("accuracy_delta", ascending=True, na_position="last").reset_index(
-        drop=True
-    )
+    df = df.sort_values(
+        "accuracy_delta", ascending=True, na_position="last"
+    ).reset_index(drop=True)
 
     return df
 

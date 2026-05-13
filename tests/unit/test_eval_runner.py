@@ -1,8 +1,8 @@
 """tests/unit/test_eval_runner.py — TDD tests for scripts/eval_runner.py (DATA-1138)."""
+
 from __future__ import annotations
 
 import io
-import os
 import pathlib
 import sys
 
@@ -20,6 +20,7 @@ if _SCRIPTS_DIR not in sys.path:
 # ---------------------------------------------------------------------------
 # Shared fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_actuals_df(accounts, category_ids, defaultcategories, monthly_totals):
     """Build a minimal actuals_df with the 4 required columns."""
@@ -330,7 +331,12 @@ def test_normalize_reference_date_invalid_raises():
 # T1 — load_and_split tests (skip if CSV not present)
 # ---------------------------------------------------------------------------
 
-_DATA_PATH = pathlib.Path(__file__).parent.parent.parent / "data" / "dough" / "smart_budget_synthetic.csv"
+_DATA_PATH = (
+    pathlib.Path(__file__).parent.parent.parent
+    / "data"
+    / "dough"
+    / "smart_budget_synthetic.csv"
+)
 
 
 def test_load_and_split_returns_correct_shapes():
