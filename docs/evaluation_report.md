@@ -192,14 +192,54 @@ Representa el error del modelo en el **grueso de las categorías cotidianas** (G
 
 ### crws — Composite Reliability-Weighted Score · métrica compuesta
 
+**Fórmula general (sin pesos fijos):**
+
 ```
-mae_regular_ref  = max(mae_regular en el grid)   ← referencia fija dentro del run
+mae_regular_ref  = max(mae_regular en el grid)         ← referencia fija dentro del run
 precision        = max(0, 1 − mae_regular / mae_regular_ref)
 coverage_score   = (coverage_rate / 100) × (1 − null_rate / 100)
-sparsity_factor  = sqrt(lb_min / lookback_months)   ← lb_min = 3
+sparsity_factor  = sqrt(lb_min / lookback_months)      ← lb_min = 3
+
+CRWS = (w_p × precision + w_c × coverage_score) × sparsity_factor
+       donde  w_p + w_c = 1
+```
+
+**Elección de pesos — `w_p = 0.65`, `w_c = 0.35`:**
+
+Los pesos reflejan la importancia relativa de cada componente para el caso de uso de Smart Budget:
+
+| Componente | Peso | Razonamiento |
+|---|---|---|
+| `precision` (`w_p = 0.65`) | Mayor | El error en dólares es lo que el usuario ve en pantalla. Una sugerencia imprecisa erosiona la confianza aunque cubra todas las categorías. Peso dominante porque el producto falla si el número es muy distinto al gasto real. |
+| `coverage_score` (`w_c = 0.35`) | Menor | Un método que no cubre algunas categorías es menos útil, pero el usuario puede ingresar ese valor manualmente. La ausencia de sugerencia es recuperable; una sugerencia muy incorrecta no lo es. |
+
+Valores alternativos evaluados: `w_p=0.5/w_c=0.5` (paridad) y `w_p=0.7/w_c=0.3` (fuerte énfasis en precisión). La distribución 65/35 preserva el ranking de WMA lb=3 como ganador y diferencia mejor los métodos lb=6 que se solapan en paridad.
+
+**Fórmula con pesos aplicados:**
+
+```
+mae_regular_ref  = max(mae_regular en el grid)         ← p. ej. 66.14 (wma lb=12)
+precision        = max(0, 1 − mae_regular / mae_regular_ref)
+coverage_score   = (coverage_rate / 100) × (1 − null_rate / 100)
+sparsity_factor  = sqrt(lb_min / lookback_months)      ← lb_min = 3
 
 CRWS = (0.65 × precision + 0.35 × coverage_score) × sparsity_factor
 ```
+
+**Ejemplo de cálculo — WMA lb=3 (método seleccionado en Fase 0):**
+
+```
+mae_regular_ref  = 66.14
+precision        = max(0, 1 − 39.95 / 66.14) = 1 − 0.6040 = 0.3960
+coverage_score   = (86.30 / 100) × (1 − 7.35 / 100) = 0.8630 × 0.9265 = 0.7996
+sparsity_factor  = sqrt(3 / 3) = 1.0000
+
+CRWS = (0.65 × 0.3960 + 0.35 × 0.7996) × 1.0000
+     = (0.2574 + 0.2799) × 1.0000
+     = 0.5372  ✓
+```
+
+El `null_rate = 7.35 %` reduce `coverage_score` de 0.8630 a 0.7996 — ya está penalizado dentro del score. Aplicar un filtro adicional de `null_rate` antes de comparar CRWS sería penalizar la cobertura dos veces.
 
 Combina en un único número `[0, 1]` las tres propiedades que importan simultáneamente: **precisión en categorías regulares** (`mae_regular`), **disponibilidad** (cobertura × null-free) y **robustez ante datos escasos**.
 
@@ -340,38 +380,7 @@ Los lb=3 muestran mae_seasonal bajo (176–177) porque con solo 3 meses de histo
 
 ### Regla de selección: mayor CRWS
 
-El CRWS ya incorpora la penalización de nulos y baja cobertura a través de `coverage_score`. La regla de selección es directa: **la configuración con mayor CRWS es el método seleccionado**.
-
-**Fórmula completa:**
-
-```
-mae_regular_ref  = max(mae_regular en el grid)         ← referencia fija del run (p. ej. 66.14)
-precision        = max(0, 1 − mae_regular / mae_regular_ref)
-coverage_score   = (coverage_rate / 100) × (1 − null_rate / 100)
-sparsity_factor  = sqrt(lb_min / lookback_months)      ← lb_min = 3
-
-CRWS = (0.65 × precision + 0.35 × coverage_score) × sparsity_factor
-```
-
-**Pesos:**
-- `0.65` — precisión en categorías regulares: el error en dólares es lo que el usuario ve en pantalla
-- `0.35` — disponibilidad: cobertura × porcentaje sin nulos; un método que deja categorías sin sugerencia es menos útil aunque sea más preciso en las que sí cubre
-- `sparsity_factor` — penaliza ventanas largas que requieren historial que muchos usuarios no tienen; la raíz cuadrada suaviza el castigo para no descartar métodos lb=6/9 cuando el historial sí existe
-
-**Ejemplo de cálculo — WMA lb=3 (método seleccionado):**
-
-```
-mae_regular_ref  = 66.14   (wma lb=12, el peor mae_regular del grid)
-precision        = max(0, 1 − 39.95 / 66.14) = 1 − 0.6040 = 0.3960
-coverage_score   = (86.30 / 100) × (1 − 7.35 / 100) = 0.8630 × 0.9265 = 0.7996
-sparsity_factor  = sqrt(3 / 3) = 1.0000
-
-CRWS = (0.65 × 0.3960 + 0.35 × 0.7996) × 1.0000
-     = (0.2574 + 0.2799) × 1.0000
-     = 0.5372  ✓
-```
-
-El `null_rate = 7.35 %` reduce `coverage_score` de 0.8630 a 0.7996 — ya está castigado dentro del score. Aplicar un filtro adicional de `null_rate < umbral` antes de comparar CRWS sería penalizar la cobertura dos veces.
+El CRWS ya incorpora la penalización de nulos y baja cobertura a través de `coverage_score` (ver fórmula completa en §3). La regla de selección es directa: **la configuración con mayor CRWS es el método seleccionado**.
 
 ### Método seleccionado (Fase 0): **WMA-B lb=3**
 
