@@ -223,8 +223,12 @@ done
 
 ## 13. Próximos pasos (DATA-1138)
 
-La **validación con usuarios reales** — midiendo `acceptance_rate` — está en scope de DATA-1138. Este documento es el análisis exploratorio que justifica la elección de WMA-B lb=6 como método default para Fase 0.
+La evaluación formal con holdout temporal está documentada en
+[docs/evaluation_report.md](evaluation_report.md). El método seleccionado para
+Fase 0 es **Median-B lb=6** (MAE=115.97 en holdout Apr2026). Ver el reporte para
+la justificación completa.
 
-Para categorías estacionales, considerar en Fase 1:
-- Detectar automáticamente el patrón estacional (CV del gasto mensual > 0.5)
-- Aplicar lb=12 + Median solo cuando se detecte estacionalidad
+**Nota:** La selección de WMA-B lb=6 mencionada en este documento (análisis
+exploratorio sin holdout de predicción) ha sido **reemplazada** por Median-B lb=6,
+que demuestra un 5 % menos de MAE en la evaluación formal. `evaluation_report.md`
+supersede este documento para la selección de método en Fase 0.
