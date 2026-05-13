@@ -1,0 +1,19 @@
+[2026-05-12T21:42:37Z] task=T0 phase=start title="Setup — requirements.txt"
+[2026-05-12T21:43:03Z] task=T0 phase=done
+[2026-05-12T21:43:03Z] task=T1.1 phase=start title="Create model.py — constants + importable"
+[2026-05-12T21:44:17Z] task=T1.1 phase=red wrote_test=tests/unit/test_model.py
+[2026-05-12T21:44:17Z] task=T1.1 phase=red status=failing
+[2026-05-12T21:44:24Z] task=T1.1 phase=green wrote_impl=src/smart_budget/model.py
+[2026-05-12T21:51:17Z] task=T1.7 phase=start title="compute_budget_suggestions — fix reference_date filter (< → <=)"
+[2026-05-12T21:51:37Z] task=T1.7 phase=green wrote_impl=src/smart_budget/model.py
+[2026-05-12T21:51:37Z] task=T1.7 phase=green status=passing
+[2026-05-12T21:51:37Z] task=T1.7 phase=commit sha=69d9564 message="feat(data-1137): implement T1.1-T1.7 — model.py"
+[2026-05-12T21:51:37Z] task=T2.1 phase=start title="CLI scripts/run_methods.py"
+[2026-05-12T21:52:32Z] task=T2.1 phase=green wrote_impl=scripts/run_methods.py
+[2026-05-12T21:52:32Z] task=T2.1 phase=green status=passing
+[2026-05-12T21:52:32Z] task=T2.1 phase=commit sha=e554cda message="feat(data-1137): implement T2.1 — scripts/run_methods.py CLI"
+[2026-05-12T21:52:32Z] task=T3.1 phase=start title="Generate golden_set.csv"
+[2026-05-12T21:54:53Z] task=T3.1 phase=red wrote_test=tests/unit/test_model.py
+[2026-05-12T21:56:34Z] task=T3.1 phase=green wrote_impl=tests/fixtures/golden_set.csv
+[2026-05-12T21:56:34Z] task=T3.1 phase=green status=passing
+[2026-05-12T21:56:34Z] task=T3.1 phase=commit sha=311f299 message="feat(data-1137): implement T3.1"
