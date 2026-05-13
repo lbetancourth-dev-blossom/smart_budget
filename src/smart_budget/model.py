@@ -117,22 +117,6 @@ def compute_holt_winters(series: pd.Series) -> float:
     forecast = fit.forecast(1)
     value = float(forecast.iloc[0])
     return round(max(0.0, value), 2)
-    """
-    Holt-Winters con ExponentialSmoothing(trend='add', seasonal=None).
-
-    Raises:
-        ValueError: si series tiene menos de 3 observaciones.
-    """
-    if len(series) < 3:
-        raise ValueError(
-            f"compute_holt_winters: need at least 3 observations, got {len(series)}"
-        )
-
-    model = ExponentialSmoothing(series, trend="add", seasonal=None)
-    fit = model.fit()
-    forecast = fit.forecast(1)
-    value = float(forecast.iloc[0])
-    return round(max(0.0, value), 2)
 
 
 # ---------------------------------------------------------------------------
