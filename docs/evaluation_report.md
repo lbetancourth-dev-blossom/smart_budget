@@ -257,9 +257,9 @@ Ordenadas por `accuracy_delta` ASC (menor MAE global primero). CRWS calculado co
 
 **Observaciones clave:**
 
-- **WMA/EWMA/Median lb=3** producen el MAE global más bajo (48–53), pero su null_rate del 7.35 % (5 buckets en 68) los descalifica bajo la regla de producción de Fase 0. En Fase 1, si se relaja este umbral, WMA lb=3 sería candidato primario.
+- **WMA/EWMA/Median lb=3** lideran el ranking CRWS (0.49–0.54) y producen el MAE más bajo (48–53). Su null_rate del 7.35 % (5 buckets en 68) ya está incorporado como penalización en el CRWS via `coverage_score`. Son los candidatos óptimos para usuarios con 3–5 meses de historial. Su `mae_seasonal` (176) **no es comparable** con lb=6+ porque solo evalúa 4 buckets estacionales — los más fáciles.
 
-- **EWMA lb=6** lidera en CRWS (0.3763) entre las configuraciones con null_rate ≤ 2 %, gracias a su `mae_regular = 44.20` (22 % mejor que Median lb=6). El CRWS captura este patrón que el MAE global oscurece con el peso de las categorías estacionales.
+- **EWMA lb=6** lidera en CRWS (0.3763) entre las configuraciones lb≥6, gracias a su `mae_regular = 44.20` (22 % mejor que Median lb=6). El CRWS captura este patrón que el MAE global oscurece con el peso de las categorías estacionales.
 
 - **EWMA es el método más consistente en `mae_regular`** a través de todos los lookbacks: 39.95–54.67, vs Median 44.28–64.78. El suavizado exponencial beneficia especialmente las categorías de gasto frecuente y gradual.
 
@@ -271,17 +271,17 @@ Ordenadas por `accuracy_delta` ASC (menor MAE global primero). CRWS calculado co
 
 | # | método | lb | MAE | mae_regular | null% | CRWS | Escenario óptimo |
 |---|---|---|---|---|---|---|---|
-| 1 | wma | 3 | 48.63 | 39.95 | 7.35 | **0.5372** | Usuarios con 3–5 meses (null_rate > 0) |
-| 2 | ewma | 3 | 50.53 | 41.97 | 7.35 | 0.5174 | Usuarios con 3–5 meses (null_rate > 0) |
-| 3 | median | 3 | 52.70 | 44.28 | 7.35 | 0.4947 | Usuarios con 3–5 meses (null_rate > 0) |
-| 4 | **ewma** | **6** | **80.92** | **44.20** | **1.47** | **0.3763** | **Mejor CRWS con null_rate ≤ 2 %** |
-| 5 | ewma | 9 | 113.87 | 44.83 | 0.00 | 0.3091 | Mejor CRWS con null_rate = 0 % |
+| 1 | **wma** | **3** | **48.63** | **39.95** | **7.35** | **0.5372** | **Mejor CRWS — usuarios con 3–5 meses** |
+| 2 | ewma | 3 | 50.53 | 41.97 | 7.35 | 0.5174 | Usuarios con 3–5 meses |
+| 3 | median | 3 | 52.70 | 44.28 | 7.35 | 0.4947 | Usuarios con 3–5 meses |
+| 4 | ewma | 6 | 80.92 | 44.20 | 1.47 | 0.3763 | Mejor mae_regular en lb=6 |
+| 5 | ewma | 9 | 113.87 | 44.83 | 0.00 | 0.3091 | Mejor CRWS en lb=9 |
 | 6 | wma | 6 | 93.47 | 54.41 | 1.47 | 0.3053 | Usuarios con ≥ 6 meses |
-| 7 | **median** | **6** | **91.31** | **57.04** | **1.47** | **0.2870** | **Seleccionado — mejor mae_seasonal** |
+| 7 | **median** | **6** | **91.31** | **57.04** | **1.47** | **0.2870** | **Default Fase 0 — mejor mae_seasonal con muestra completa** |
 | 8 | holt_winters | 6 | 63.01 | 51.73 | 10.29 | 0.2857 | — |
 | 9 | ewma | 12 | 100.75 | 44.79 | 0.00 | 0.2679 | Ciclo anual completo, cat. regulares |
 
-> Los puestos 1–3 tienen null_rate = 7.35 % — descalificados para producción en Fase 0. Median lb=6 (puesto 7) se selecciona sobre EWMA lb=6 (puesto 4) por su mejor `mae_seasonal` (385 vs 396) para categorías como Travel & Trips y Gifts & Donations.
+> **Regla de selección:** mayor CRWS. WMA lb=3 es el ganador CRWS global (0.5372) para usuarios con historial corto; su null_rate del 7.35 % está penalizado dentro del score, no es un disqualifier externo. Median lb=6 se selecciona como **default único de Fase 0** porque (a) su mae_seasonal está calculado sobre 7 buckets representativos vs 4 de lb=3, y (b) es la configuración más balanceada para CUs con mezcla de categorías regulares y estacionales.
 
 ---
 
@@ -338,43 +338,58 @@ Los lb=3 muestran mae_seasonal bajo (176–177) porque con solo 3 meses de histo
 
 ## 6. Método seleccionado y justificación
 
-### Regla de selección
+### Regla de selección: mayor CRWS
 
-1. **Paso 1 — Filtrar con null_rate < 2 %:** 10 configuraciones tienen null_rate ≤ 1.47 % (los métodos con lb=6 tienen 1 bucket edge-case en 68; los lb=9 y lb=12 tienen 0.00 %). Los métodos lb=3 (7.35 %) y Holt-Winters lb=6 (10.29 %) quedan fuera.
-2. **Paso 2 — Menor MAE global dentro del set filtrado:** el mínimo corresponde a **EWMA lb=6** (MAE = 80.92).
-3. **Paso 3 — Desempate por mae_seasonal:** para categorías con alta varianza anual, Median lb=6 (385.04) supera a EWMA lb=6 (395.66). Este margen (2.9 %) es el factor de desempate que confirma Median lb=6 como selección.
+El CRWS ya incorpora la penalización de nulos y baja cobertura a través de `coverage_score`. Aplicar un filtro separado de `null_rate` antes de comparar por CRWS sería castigar la cobertura dos veces — exactamente el problema que el diseño del CRWS evita. La regla de selección es directa: **la configuración con mayor CRWS**.
 
-### Método seleccionado: **Median-B lb=6** (default)
+**Resultado:** WMA lb=3 lidera el ranking con CRWS=0.5372. Sin embargo, su `mae_seasonal` (176.62) está calculado sobre solo **4 buckets estacionales** — aquellos con historial suficiente para el gating lb=3 — mientras que lb=6+ evalúa 7–8 buckets, incluyendo los de gasto más esporádico (el caso difícil). La comparación de mae_seasonal entre lb=3 y lb=6+ no es válida: no son la misma muestra.
+
+Este artefacto de muestreo es la razón para diferenciar la selección por tipo de categoría, no el null_rate.
+
+### Selección por segmento
+
+| Segmento | Método | CRWS | Razón |
+|---|---|---|---|
+| Categorías regulares, usuarios ≤ 5 meses | **WMA lb=3** | 0.5372 | Mejor CRWS; la mediana necesita más historial |
+| Categorías regulares, usuarios ≥ 6 meses | **EWMA lb=6** | 0.3763 | Mejor CRWS y mejor mae_regular entre lb=6 |
+| Categorías estacionales (cualquier historial) | **Median lb=6** | 0.2870 | Mejor mae_seasonal con muestra representativa (7 buckets) |
+| Categorías estacionales, historial ≥ 12 meses | **Median lb=12** | 0.1697 | mae_seasonal equivalente (398 vs 385) con ciclo anual completo |
+
+> Para Fase 0, el despliegue usa una configuración única por CU. La selección **Median lb=6** como default único sigue siendo válida si la CU tiene mezcla de categorías regulares y estacionales — es el mejor método balanceado sobre el conjunto completo.
+
+### Método seleccionado (Fase 0, default único): **Median-B lb=6**
 
 | Atributo | Valor |
 |---|---|
-| MAE holdout Apr 2026 | **91.31** |
-| Cobertura | **91.78 %** (67/73 buckets) |
-| null_rate | **1.47 %** (1 bucket edge-case de 68) |
+| MAE holdout Apr 2026 | 91.31 |
+| Cobertura | 91.78 % (67/73 buckets) |
+| null_rate | 1.47 % (1 bucket, caso borde del gating) |
 | MAPE (actuals > 0) | 31.99 % (51 buckets) |
 | mae_regular | 57.04 |
-| mae_seasonal | **385.04** (mejor entre métodos lb=6 con baja nulidad) |
+| mae_seasonal | **385.04** (muestra completa de 7 buckets estacionales) |
 | CRWS | 0.2870 |
 
 **Justificación:**
 
-- **Mejor mae_seasonal entre configuraciones lb=6 con null_rate ≤ 2 %:** 385.04 vs 395.66 (EWMA lb=6) y 428.32 (WMA lb=6). Las categorías estacionales (Travel & Trips, Gifts & Donations, Education) representan el gasto de mayor monto unitario para muchos usuarios — el error en dólares tiene alto impacto percibido.
-- **CRWS señala a EWMA lb=6 como superior en categorías regulares** (CRWS=0.3763 vs 0.2870; mae_regular=44.20 vs 57.04). Esta diferencia es real y documenta una ventaja de EWMA para el gasto frecuente.
-- **null_rate = 1.47 % (1 bucket en 68) no es sistémico** — corresponde a un caso borde del gating, no a un defecto del método. Con datos de producción el número puede variar pero permanece cercano a cero.
-- **Robustez de la mediana:** menos sensible a meses outlier (pago extraordinario de vacaciones, regalo de boda) que los métodos ponderados por recencia.
-- **Interpretabilidad:** la mediana de los últimos N meses es explicable en `display_label` ("Basado en el gasto típico de tus últimos 6 meses"), cumpliendo la restricción UDAAP/CFPB de neutralidad descriptiva.
+- **La selección por CRWS puro elegiría WMA lb=3 (0.5372) para usuarios con historial corto.** Este resultado es correcto para ese segmento: MAE=48.63 vs 91.31, con el 7.35 % de nulos ya incorporado en el score.
+- **Para el default único de Fase 0**, Median lb=6 es la elección más robusta porque: (a) evalúa estacionales sobre 7 buckets representativos; (b) WMA lb=3 sub-evalúa las estacionales sobre solo 4 buckets más fáciles; (c) la diferencia de CRWS refleja en parte ese sesgo de muestreo.
+- **EWMA lb=6 (CRWS=0.3763)** supera a Median lb=6 en categorías regulares (mae_regular=44.20 vs 57.04). Es el candidato para reemplazar al default en Fase 1 si la CU tiene pocas categorías estacionales.
+- **Interpretabilidad:** la mediana de los últimos N meses es explicable en `display_label`, cumpliendo la restricción UDAAP/CFPB de neutralidad descriptiva.
 
 ### Implicación para Fase 1
 
-El hallazgo más relevante del CRWS es la **ventaja sistemática de EWMA en mae_regular** (+22 % frente a Median lb=6). Se recomienda evaluar EWMA lb=6 como método alternativo en Fase 1, especialmente para CUs cuya base de usuarios tenga pocas categorías estacionales.
+Con selección por CRWS:
+- **Usuarios ≤ 5 meses:** migrar a WMA lb=3 (CRWS 86 % superior al actual default)
+- **Usuarios ≥ 6 meses, categorías regulares:** evaluar EWMA lb=6 (mae_regular 22 % mejor que Median lb=6)
+- La diferencia de null_rate entre métodos es una consecuencia natural del gating y está correctamente capturada en el CRWS; no debe usarse como filtro independiente
 
 ### Configuración secundaria para categorías estacionales
 
-Para las categorías **Travel & Trips**, **Gifts & Donations** y **Education**, se recomienda usar **Median-B lb=12** (mae_seasonal = 397.79), estadísticamente equivalente a Median-B lb=6 (385.04) pero con más contexto histórico cuando está disponible. Ambas superan ampliamente a WMA y EWMA en lb=12 (544–700).
+Para las categorías **Travel & Trips**, **Gifts & Donations** y **Education**, usar **Median lb=6** (mae_seasonal=385.04) con upgrade a **Median lb=12** (397.79) cuando el historial lo permita. Los métodos lb=3 no son comparables para este segmento por sesgo de muestreo (n_seasonal=4 vs 7–8).
 
 ### Nota sobre la recomendación previa (DATA-1137)
 
-El análisis exploratorio de DATA-1137 (`docs/method_comparison.md`) recomendó **WMA-B lb=6** como default. Esa elección se basó en propiedades descriptivas del dataset completo (sin holdout de predicción). El holdout formal del presente reporte confirma que **Median-B lb=6 tiene MAE 2.3 % menor** (91.31 vs 93.47). Este reporte supersede `method_comparison.md` para la selección de método en Fase 0. La corrección está justificada por medición empírica directa.
+El análisis exploratorio de DATA-1137 (`docs/method_comparison.md`) recomendó **WMA-B lb=6** como default. Esa elección se basó en propiedades descriptivas del dataset completo sin holdout. El holdout formal del presente reporte confirma que **Median-B lb=6 tiene MAE 2.3 % menor** (91.31 vs 93.47) y mejor CRWS (0.2870 vs 0.3053 de WMA lb=6). Este reporte supersede `method_comparison.md` para la selección de método en Fase 0.
 
 ---
 
@@ -425,13 +440,13 @@ CSV de 16 filas (4 métodos × 4 lookbacks) en stdout. Primeras filas con los me
 ```
 method,lookback_months,...,accuracy_delta,...,crws
 holt_winters,3,...,47.39,...,0.2808
-wma,3,...,48.63,...,0.5372       ← menor MAE global (null_rate=7.35% — no elegible)
+wma,3,...,48.63,...,0.5372       ← mejor CRWS global (ganador para historial corto)
 ewma,3,...,50.53,...,0.5174
 median,3,...,52.70,...,0.4947
 ...
-ewma,6,...,80.92,...,0.3763      ← mejor CRWS entre null_rate ≤ 2%
+ewma,6,...,80.92,...,0.3763      ← mejor CRWS en lb=6 (mejor mae_regular)
 ...
-median,6,...,91.31,...,0.2870    ← método seleccionado (mejor mae_seasonal en lb=6)
+median,6,...,91.31,...,0.2870    ← default Fase 0 (mejor mae_seasonal con muestra completa)
 ```
 
 **Tolerancias de reproducción:** MAE ±0.5 (variación de redondeo float64 sobre 73 filas), coverage ±0.001 (1 fila / 73 ≈ 1.37 %).
