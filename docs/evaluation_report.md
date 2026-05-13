@@ -342,6 +342,37 @@ Los lb=3 muestran mae_seasonal bajo (176–177) porque con solo 3 meses de histo
 
 El CRWS ya incorpora la penalización de nulos y baja cobertura a través de `coverage_score`. La regla de selección es directa: **la configuración con mayor CRWS es el método seleccionado**.
 
+**Fórmula completa:**
+
+```
+mae_regular_ref  = max(mae_regular en el grid)         ← referencia fija del run (p. ej. 66.14)
+precision        = max(0, 1 − mae_regular / mae_regular_ref)
+coverage_score   = (coverage_rate / 100) × (1 − null_rate / 100)
+sparsity_factor  = sqrt(lb_min / lookback_months)      ← lb_min = 3
+
+CRWS = (0.65 × precision + 0.35 × coverage_score) × sparsity_factor
+```
+
+**Pesos:**
+- `0.65` — precisión en categorías regulares: el error en dólares es lo que el usuario ve en pantalla
+- `0.35` — disponibilidad: cobertura × porcentaje sin nulos; un método que deja categorías sin sugerencia es menos útil aunque sea más preciso en las que sí cubre
+- `sparsity_factor` — penaliza ventanas largas que requieren historial que muchos usuarios no tienen; la raíz cuadrada suaviza el castigo para no descartar métodos lb=6/9 cuando el historial sí existe
+
+**Ejemplo de cálculo — WMA lb=3 (método seleccionado):**
+
+```
+mae_regular_ref  = 66.14   (wma lb=12, el peor mae_regular del grid)
+precision        = max(0, 1 − 39.95 / 66.14) = 1 − 0.6040 = 0.3960
+coverage_score   = (86.30 / 100) × (1 − 7.35 / 100) = 0.8630 × 0.9265 = 0.7996
+sparsity_factor  = sqrt(3 / 3) = 1.0000
+
+CRWS = (0.65 × 0.3960 + 0.35 × 0.7996) × 1.0000
+     = (0.2574 + 0.2799) × 1.0000
+     = 0.5372  ✓
+```
+
+El `null_rate = 7.35 %` reduce `coverage_score` de 0.8630 a 0.7996 — ya está castigado dentro del score. Aplicar un filtro adicional de `null_rate < umbral` antes de comparar CRWS sería penalizar la cobertura dos veces.
+
 ### Método seleccionado (Fase 0): **WMA-B lb=3**
 
 | Atributo | Valor |
