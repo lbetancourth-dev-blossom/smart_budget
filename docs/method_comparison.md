@@ -16,6 +16,76 @@
 | **Median** | Sin ponderación temporal | Nula | 2 meses positivos | Resistente a outliers, ignora tendencia |
 | **Holt-Winters (HW)** | Nivel + tendencia aditiva | Muy alta | **3 meses mínimo para HW** | Amplifica tendencias; inestable con pocos datos |
 
+### WMA — Weighted Moving Average
+
+Asigna pesos lineales crecientes a los meses disponibles: el mes más reciente recibe el peso mayor.
+
+```
+pesos   = [1, 2, 3, …, n]   donde n = número de meses con gasto positivo
+WMA     = Σ(peso_i × gasto_i) / Σ(pesos)
+```
+
+**Ejemplo** (lb=3, gastos: $200, $220, $260 — el más reciente es $260):
+```
+WMA = (1×200 + 2×220 + 3×260) / (1+2+3) = (200 + 440 + 780) / 6 = $236.67
+```
+
+**Cuándo es mejor:** cuando el gasto tiene tendencia creciente o decreciente suave. La ponderación lineal da más peso a la inercia reciente sin sobrereaccionar a picos puntuales.
+
+---
+
+### EWMA — Exponentially Weighted Moving Average
+
+Aplica decaimiento exponencial: el mes más reciente pesa más que en WMA, pero el decaimiento es suave y no corta abruptamente.
+
+```
+α       = 2 / (span + 1)   con span=3 → α = 0.5
+EWMA_t  = α × gasto_t + (1 − α) × EWMA_{t-1}
+```
+
+**Ejemplo** (span=3, gastos en orden cronológico: $200, $220, $260):
+```
+EWMA_1 = 200
+EWMA_2 = 0.5×220 + 0.5×200 = 210
+EWMA_3 = 0.5×260 + 0.5×210 = $235.00
+```
+
+**Cuándo es mejor:** cuando el gasto fluctúa frecuentemente (cambios mes a mes). El suavizado exponencial amortigua los picos sin ignorar el momentum reciente — de ahí que tenga el mejor `mae_regular` consistente a través de todos los lookbacks.
+
+---
+
+### Median
+
+Toma la mediana simple de los gastos mensuales positivos en la ventana. No hay ponderación temporal.
+
+```
+Median = percentil 50 de [gasto_1, gasto_2, …, gasto_n]
+```
+
+**Ejemplo** (lb=6, gastos con gasto positivo: $180, $220, $260, $240, $200):
+```
+Ordenados: [180, 200, 220, 240, 260]
+Median = $220 (valor central)
+```
+
+**Cuándo es mejor:** cuando el gasto tiene alta varianza o picos esporádicos (ej. categorías estacionales). La mediana ignora outliers por diseño — una compra grande un mes no distorsiona la sugerencia.
+
+---
+
+### Holt-Winters (HW) — suavizado exponencial con tendencia
+
+Descompone la serie en **nivel** (L) y **tendencia** (T), ambos actualizados en cada paso con sus propios parámetros de suavizado.
+
+```
+L_t = α × gasto_t + (1−α) × (L_{t-1} + T_{t-1})
+T_t = β × (L_t − L_{t-1}) + (1−β) × T_{t-1}
+HW  = L_t + T_t   ← predicción del siguiente mes
+```
+
+Los parámetros α y β se optimizan por mínimos cuadrados sobre la serie disponible.
+
+**Cuándo es mejor:** series largas (≥ 12 meses) con tendencia clara y datos densos. Con ventanas cortas (lb=3), el optimizador carece de suficientes puntos y genera estimaciones inestables — de ahí el alto null_rate con lb=3 (45.59 %) y el CRWS bajo en toda la grilla.
+
 ---
 
 ## 2. Tratamientos de ceros
@@ -223,8 +293,12 @@ done
 
 ## 13. Próximos pasos (DATA-1138)
 
-La **validación con usuarios reales** — midiendo `acceptance_rate` — está en scope de DATA-1138. Este documento es el análisis exploratorio que justifica la elección de WMA-B lb=6 como método default para Fase 0.
+La evaluación formal con holdout temporal está documentada en
+[docs/evaluation_report.md](evaluation_report.md). El método seleccionado para
+Fase 0 es **Median-B lb=6** (MAE=115.97 en holdout Apr2026). Ver el reporte para
+la justificación completa.
 
-Para categorías estacionales, considerar en Fase 1:
-- Detectar automáticamente el patrón estacional (CV del gasto mensual > 0.5)
-- Aplicar lb=12 + Median solo cuando se detecte estacionalidad
+**Nota:** La selección de WMA-B lb=6 mencionada en este documento (análisis
+exploratorio sin holdout de predicción) ha sido **reemplazada** por Median-B lb=6,
+que demuestra un 5 % menos de MAE en la evaluación formal. `evaluation_report.md`
+supersede este documento para la selección de método en Fase 0.
