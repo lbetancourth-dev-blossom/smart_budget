@@ -334,6 +334,19 @@ El loader busca los CSVs en este orden de prioridad:
 > **Prerequisito:** acceso al AWS account de Blossom (perfil `blossom-dev`).
 > El endpoint corre en la red privada de AWS — no está expuesto a internet.
 
+### Reglas de validación
+
+El endpoint SageMaker aplica las mismas 3 reglas que el endpoint local FastAPI:
+
+| # | Regla | Condición | Comportamiento SageMaker |
+|---|---|---|---|
+| 1 | Cuenta no existe | `idaccount` no está en los datos | Error 400 — `ValueError: idaccount not found` |
+| 2 | Categoría no válida | `defaultcategory` no reconocida | Error 400 — `ValueError: invalid defaultcategory` |
+| 3 | Sin datos para el período | Cuenta y categoría existen, sin historial | Respuesta válida con `suggested_amount: null` |
+
+> En SageMaker no hay códigos HTTP 404/422 como en FastAPI — los errores de validación
+> llegan como excepciones que SageMaker retorna como error 400 (`ModelError`).
+
 ### Deploy completo
 
 El notebook `notebooks/smart_budget_sagemaker_endpoint.ipynb` guía el proceso end-to-end:
@@ -365,33 +378,78 @@ runtime = boto3.client(
     region_name='us-east-1',
 )
 
-payload = json.dumps({
-    'idaccount': 'EXT2',
-    'defaultcategory': 'Food & Dining',
-    'period_id': '2026-05',
-})
+def invoke(idaccount: str, defaultcategory: str, period_id: str) -> dict:
+    payload = json.dumps({
+        'idaccount': idaccount,
+        'defaultcategory': defaultcategory,
+        'period_id': period_id,
+    })
+    try:
+        response = runtime.invoke_endpoint(
+            EndpointName='smart-budget-suggestion-endpoint',
+            ContentType='application/json',
+            Body=payload,
+        )
+        return json.loads(response['Body'].read().decode('utf-8'))
+    except runtime.exceptions.ModelError as e:
+        # Regla 1 (cuenta no existe) o Regla 2 (categoría inválida) → ModelError
+        print(f"Error de validación: {e}")
+        return None
 
-response = runtime.invoke_endpoint(
-    EndpointName='smart-budget-suggestion-endpoint',
-    ContentType='application/json',
-    Body=payload,
-)
+# Regla 3 — Happy path: cuenta + categoría con datos
+result = invoke('EXT2', 'Food & Dining', '2026-05')
+print(result['suggested_amount'])   # → float > 0
 
-result = json.loads(response['Body'].read().decode('utf-8'))
-print(result)
+# Regla 3 — Sin datos para esa combinación → null
+result = invoke('SYN001', 'Groceries', '2026-05')
+print(result['suggested_amount'])   # → None
+
+# Regla 1 — Cuenta no existe → ModelError (capturado arriba)
+result = invoke('CUENTA_INEXISTENTE', 'Groceries', '2026-05')   # → None
+
+# Regla 2 — Categoría inválida → ModelError (capturado arriba)
+result = invoke('EXT2', 'CategoriaInexistente', '2026-05')   # → None
 ```
 
 ### Invocar con AWS CLI
 
 ```bash
+# Regla 3 — Happy path (cuenta + categoría con datos) → suggested_amount > 0
 aws sagemaker-runtime invoke-endpoint \
   --endpoint-name smart-budget-suggestion-endpoint \
   --content-type application/json \
-  --body '{"idaccount":"EXT2","defaultcategory":"Groceries","period_id":"2026-05"}' \
+  --body '{"idaccount":"EXT2","defaultcategory":"Food & Dining","period_id":"2026-05"}' \
   --profile blossom-dev \
-  /tmp/sm_response.json
+  /tmp/sm_response.json && cat /tmp/sm_response.json | jq .
 
-cat /tmp/sm_response.json | jq .
+# Regla 1 — Cuenta no existe → ModelError 400
+aws sagemaker-runtime invoke-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint \
+  --content-type application/json \
+  --body '{"idaccount":"CUENTA_INEXISTENTE","defaultcategory":"Groceries","period_id":"2026-05"}' \
+  --profile blossom-dev \
+  /tmp/sm_err.json
+# SageMaker retorna: An error occurred (ModelError) ...
+# Body: {"error": "ValueError: idaccount not found: 'CUENTA_INEXISTENTE'"}
+
+# Regla 2 — Categoría no válida → ModelError 400
+aws sagemaker-runtime invoke-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint \
+  --content-type application/json \
+  --body '{"idaccount":"EXT2","defaultcategory":"CategoriaInexistente","period_id":"2026-05"}' \
+  --profile blossom-dev \
+  /tmp/sm_err.json
+# SageMaker retorna: An error occurred (ModelError) ...
+# Body: {"error": "ValueError: invalid defaultcategory: 'CategoriaInexistente'"}
+
+# Regla 3 — Sin datos para esa combinación → suggested_amount null
+aws sagemaker-runtime invoke-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint \
+  --content-type application/json \
+  --body '{"idaccount":"SYN001","defaultcategory":"Groceries","period_id":"2026-05"}' \
+  --profile blossom-dev \
+  /tmp/sm_response.json && cat /tmp/sm_response.json | jq '{suggested_amount, display_label}'
+# → { "suggested_amount": null, "display_label": "No hay datos para esta cuenta y categoría" }
 ```
 
 ### Verificar estado del endpoint
