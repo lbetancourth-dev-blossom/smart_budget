@@ -18,6 +18,7 @@ Guías paso a paso para desarrolladores y analistas de datos que trabajan en el 
 ### Smart Budget
 
 - [[How-To-Run-Pipeline]] — Ejecutar el pipeline completo (extract → build → prep → suggest)
+- [[How-To-Use-Endpoint]] — Levantar el endpoint local (FastAPI) y desplegar en SageMaker
 - [[How-To-Add-New-Method]] — Agregar un nuevo método de sugerencia
 - [[How-To-Generate-Synthetic-Data]] — Generar datos sintéticos para desarrollo y testing
 
