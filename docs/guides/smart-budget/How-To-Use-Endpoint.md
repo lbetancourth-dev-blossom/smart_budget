@@ -229,14 +229,29 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcat
 
 #### TC-T2.5 — Regla 1: Cuenta no existe → 404
 
-La cuenta `idaccount` no está en ningún CSV de datos. En uso normal (via Swagger) todos los
-accounts del dropdown existen, por lo que este caso se reproduce vía mock en tests.
+La cuenta `idaccount` no está en ningún CSV de datos.
+
+> **Nota:** El Swagger UI solo muestra los accounts del dropdown (todos existen en el CSV),
+> por lo que el 404 no es alcanzable desde la UI. Para probarlo en curl, hay que enviar
+> un valor que **no está en el enum** — FastAPI retornará 422 (validación de enum primero).
+> La única forma de disparar el 404 real es bypasear la validación del enum:
 
 ```bash
-# No reproducible directamente en el Swagger (todos los accounts del dropdown existen).
-# Se verifica vía test unitario: test_get_suggestion_account_not_found_returns_404
-# Respuesta esperada: HTTP 404
+# Opción A — Con un account fuera del enum: FastAPI retorna 422 (validación antes del negocio)
+curl -s -w "\nHTTP %{http_code}\n" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=CUENTA_INEXISTENTE&defaultcategory=Groceries&period_id=2026-05"
+# Resultado: HTTP 422 (el enum rechaza el valor antes de llegar a la lógica)
+
+# Opción B — Bypasear el enum con el flag --no-enum-validation (solo dev/test):
+# Agrega temporalmente el account al enum en router.py, borra el CSV, y prueba:
+curl -s -w "\nHTTP %{http_code}\n" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=CUENTA_SIN_CSV&defaultcategory=Groceries&period_id=2026-05"
+# Resultado esperado: HTTP 404
 # { "detail": "idaccount not found" }
+
+# Opción C — Reproducción directa en tests (recomendada):
+# pytest tests/unit/test_api.py::test_get_suggestion_account_not_found_returns_404 -v
+# El mock pone account_exists=False y confirma que router devuelve 404.
 ```
 
 #### TC-T2.6 — Regla 2: Categoría no reconocida → 422
