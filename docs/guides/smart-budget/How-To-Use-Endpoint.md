@@ -55,7 +55,7 @@ http://localhost:8000/redoc     ← ReDoc
 ### Contrato del endpoint
 
 ```
-GET /suggestion
+GET /smart-budget/suggestion
 
 Query params:
   idaccount        string  requerido  ID de la cuenta del miembro
@@ -102,19 +102,19 @@ Query params:
 
 ```bash
 # Cuenta con historial completo (synthetic)
-curl "http://localhost:8000/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05"
+curl "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05"
 
 # Otra cuenta — categoría diferente
-curl "http://localhost:8000/suggestion?idaccount=SYN007&defaultcategory=Groceries&period_id=2026-05"
+curl "http://localhost:8000/smart-budget/suggestion?idaccount=SYN007&defaultcategory=Groceries&period_id=2026-05"
 
 # Cuenta OLB test_internal
-curl "http://localhost:8000/suggestion?idaccount=INT31880&defaultcategory=Gas&period_id=2026-05"
+curl "http://localhost:8000/smart-budget/suggestion?idaccount=INT31880&defaultcategory=Gas&period_id=2026-05"
 
 # Caso null — categoría sin suficiente historial
-curl "http://localhost:8000/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05"
+curl "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05"
 
 # Pretty print con jq
-curl -s "http://localhost:8000/suggestion?idaccount=EXT2&defaultcategory=Groceries&period_id=2026-05" | jq .
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Groceries&period_id=2026-05" | jq .
 ```
 
 ### Cuentas y categorías disponibles en los datos de prueba
