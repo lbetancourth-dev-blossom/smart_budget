@@ -170,7 +170,7 @@ Query params (todos requeridos, validados por enum):
 
 ### Escenarios de prueba
 
-Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.9):
+Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.7):
 
 | TC | Descripción | HTTP | `suggested_amount` |
 |---|---|---|---|
@@ -178,11 +178,15 @@ Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equiv
 | T2.2 | `suggested_amount` nunca negativo | `200` | ≥ 0.0 |
 | T2.3 | `basis.method == "wma"`, `treatment == "B"` | `200` | valor > 0 |
 | T2.4 | Campo `explanation` ausente en la respuesta | `200` | — |
-| T2.5 | Cuenta **no existe** en ningún CSV | `404` | — |
-| T2.6 | Cuenta existe, **categoría sin datos** | `200` | `null` |
-| T2.7 | `period_id` fuera del enum | `422` | — |
-| T2.8 | Formato de fecha inválido (`2026/05`) | `422` | — |
-| T2.9 | Ventana de lookback sin solapamiento con historial | `200` | `null` |
+| T2.5 | Cuenta/categoría **sin datos suficientes** → historial insuficiente | `200` | `null` |
+| T2.6 | Historial < 2 meses (gating) | `200` | `null` |
+| T2.7 | Parámetro fuera del enum (valor inválido) | `422` | — |
+
+> **Nota sobre 404:** La respuesta `404` (account not found) es un caso **defensivo** —
+> todos los accounts listados en el dropdown del Swagger existen en los CSVs sintéticos,
+> por lo que no es alcanzable en uso normal. Se verifica en el test unitario
+> `test_account_not_in_any_csv_returns_404` para proteger frente a desincronía entre
+> enum y datos.
 
 #### TC-T2.1 — Happy path: cuenta con historial completo → 200 con sugerencia
 
@@ -194,8 +198,8 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcat
 #### TC-T2.2 — `suggested_amount` siempre ≥ 0
 
 ```bash
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05" | jq '.suggested_amount'
-# Esperado: número >= 0.0, nunca negativo
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05" | jq '.suggested_amount'
+# SYN001 tiene datos de Pets; esperado: número >= 0.0, nunca negativo
 ```
 
 #### TC-T2.3 — Método y treatment correctos
@@ -208,51 +212,54 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN002&defaultc
 #### TC-T2.4 — El campo `explanation` NO debe aparecer en la respuesta
 
 ```bash
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Groceries&period_id=2026-05" | jq 'has("explanation")'
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05" | jq 'has("explanation")'
 # Esperado: false
 ```
 
-#### TC-T2.5 — Cuenta que no existe en ningún CSV → 404
+#### TC-T2.5 — Sin datos para esa combinación cuenta/categoría → 200 null
+
+SYN001 **no tiene datos de Groceries** (sus categorías son: Auto & Transport, Bills & Utilities,
+Entertainment & Leisure, Home & Rent, Pets). Lo mismo aplica para SYN008 + Groceries.
 
 ```bash
-# Esta cuenta está en el enum pero si no tiene datos en ningún CSV → 404
-curl -s -o /dev/null -w "%{http_code}" \
-  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN008&defaultcategory=Groceries&period_id=2026-05"
-# Esperado: 404 (la cuenta no tiene registros en los CSVs disponibles)
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05" \
+  | jq '{suggested_amount, confidence, basis, display_label}'
+# Esperado:
+# {
+#   "suggested_amount": null,
+#   "confidence": null,
+#   "basis": null,
+#   "display_label": "No hay suficiente historial para esta categoría"
+# }
 ```
 
-#### TC-T2.6 — Cuenta existe pero sin datos para esa categoría → 200 null
+#### TC-T2.6 — Historial < 2 meses (gating) → 200 null
+
+Este caso requiere un account+categoría con exactamente 1 mes de datos en el CSV.
+Se verifica vía test unitario (mock con `n_months=1`). Para forzarlo manualmente:
 
 ```bash
-# La cuenta SYN001 existe, pero puede no tener historial en "Pets"
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05" \
-  | jq '{suggested_amount, display_label}'
-# Esperado: { "suggested_amount": null, "display_label": "No hay suficiente historial para esta categoría" }
-# → La cuenta EXISTE; simplemente no hay datos para esa categoría específica
+# Si el account tiene solo 1 mes de data en la ventana, el gating lo filtra
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN008&defaultcategory=Gas&period_id=2024-01" \
+  | jq '{suggested_amount, confidence, basis}'
+# Si solo hay 1 mes de historial → { "suggested_amount": null, "confidence": null, "basis": null }
+# Nota: el resultado real depende del historial disponible en los CSVs de prueba.
 ```
 
-#### TC-T2.7 — `period_id` fuera del enum → 422
+#### TC-T2.7 — Parámetro fuera del enum → 422
+
+Aplica a cualquier campo que no esté en el dropdown: `idaccount`, `defaultcategory` o `period_id`.
 
 ```bash
+# period_id no en el enum
 curl -s -o /dev/null -w "%{http_code}" \
   "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2099-01"
-# Esperado: 422 (valor no listado en el enum PeriodId)
-```
+# Esperado: 422
 
-#### TC-T2.8 — Formato de fecha inválido → 422
-
-```bash
+# Formato de fecha con slash (tampoco está en el enum)
 curl -s -o /dev/null -w "%{http_code}" \
   "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026%2F05"
-# Esperado: 422 (2026/05 no está en el enum — separador slash inválido)
-```
-
-#### TC-T2.9 — Ventana de lookback sin datos (período muy antiguo) → 200 null
-
-```bash
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2025-09" | jq '{suggested_amount, confidence, basis}'
-# Esperado: { "suggested_amount": null, "confidence": null, "basis": null }
-# (ventana 2025-06~2025-08 está antes del historial disponible)
+# Esperado: 422
 ```
 
 #### Caso extra — Ver desglose mensual (`amount_by_month`)

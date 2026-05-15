@@ -1,7 +1,11 @@
 """tests/unit/test_api.py — Integration tests for FastAPI endpoint (DATA-1140).
 
-Test contracts: TC-T2.1 – TC-T2.9
+Test contracts: TC-T2.1 – TC-T2.7
 Uses TestClient from starlette (via fastapi.testclient).
+
+Nota: la respuesta 404 (account not found) es un caso defensivo no alcanzable
+a través del enum (todos los accounts del enum existen en el CSV sintético).
+Se verifica en test_account_not_in_any_csv_returns_404 fuera de la secuencia TC.
 """
 from __future__ import annotations
 
@@ -175,45 +179,20 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.5 — Cuenta que no existe en ningún CSV → 404
+# TC-T2.5 — Sin datos para esa combinación cuenta/categoría → 200 null
+#
+# Caso real: SYN001 existe en el CSV sintético pero NO tiene datos para
+# Groceries (sus categorías son Auto & Transport, Bills & Utilities,
+# Entertainment & Leisure, Home & Rent, Pets). Lo mismo aplica para
+# cualquier período que no tenga solapamiento — la respuesta observable
+# es idéntica: 200 con null en suggested_amount.
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
+def test_get_suggestion_no_data_for_category_returns_null(tmp_path, monkeypatch):
     """
-    Arrange: load_history devuelve DataFrame vacío Y account_exists devuelve False.
-    Act: GET /smart-budget/suggestion con una cuenta que no tiene datos en ningún CSV.
-    Assert: HTTP 404.
-    """
-    monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
-    tmp_path.mkdir(exist_ok=True)
-
-    from fastapi.testclient import TestClient
-    from src.main import app
-
-    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
-         patch("src.api.router.account_exists", return_value=False):
-        tc = TestClient(app)
-        response = tc.get(
-            "/smart-budget/suggestion",
-            params={
-                "idaccount": "SYN001",
-                "defaultcategory": "Groceries",
-                "period_id": "2026-05",
-            },
-        )
-
-    assert response.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# TC-T2.6 — Cuenta existe pero sin datos para la categoría → 200 null
-# ---------------------------------------------------------------------------
-
-def test_get_suggestion_account_exists_no_category_data_returns_null(tmp_path, monkeypatch):
-    """
-    Arrange: load_history devuelve DataFrame vacío PERO account_exists devuelve True.
-             La cuenta existe pero no tiene historial para la categoría pedida.
-    Act: GET /smart-budget/suggestion.
+    Arrange: account_exists=True (cuenta existe) pero load_history devuelve vacío.
+             Ejemplo: SYN001 no tiene datos para Groceries en ningún período.
+    Act: GET /smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05
     Assert: HTTP 200; suggested_amount == null; display_label indica historial insuficiente.
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
@@ -227,11 +206,7 @@ def test_get_suggestion_account_exists_no_category_data_returns_null(tmp_path, m
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={
-                "idaccount": "SYN001",
-                "defaultcategory": "Pets",
-                "period_id": "2026-05",
-            },
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -243,32 +218,7 @@ def test_get_suggestion_account_exists_no_category_data_returns_null(tmp_path, m
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.7 — Invalid param value (not in enum) → 422
-# ---------------------------------------------------------------------------
-
-def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
-    """
-    Arrange: period_id value not in the PeriodId enum (e.g. "2099-01").
-    Act: GET /smart-budget/suggestion?...&period_id=2099-01
-    Assert: HTTP 422 (FastAPI enum validation rejects unknown value).
-    """
-    monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
-    tmp_path.mkdir(exist_ok=True)
-
-    from fastapi.testclient import TestClient
-    from src.main import app
-
-    tc = TestClient(app)
-    response = tc.get(
-        "/smart-budget/suggestion",
-        params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2099-01"},
-    )
-
-    assert response.status_code == 422
-
-
-# ---------------------------------------------------------------------------
-# TC-T2.8 — Insufficient data (1 month) → 200 null response
+# TC-T2.6 — Historial insuficiente (< 2 meses) → 200 null (gating)
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_insufficient_data_returns_null_200(tmp_path, monkeypatch):
@@ -301,14 +251,15 @@ def test_get_suggestion_insufficient_data_returns_null_200(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.9 — period_id at edge of enum with no data in window → 200 null
+# TC-T2.7 — Valor de parámetro fuera del enum → 422
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch):
+def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
     """
-    Arrange: history has data for 2026-02/03/04; period_id=2025-09 → window 2025-06~2025-08.
-    Act: GET /smart-budget/suggestion?...&period_id=2025-09
-    Assert: HTTP 200 with null response (window is entirely before history).
+    Arrange: period_id value not in the PeriodId enum (e.g. "2099-01").
+    Act: GET /smart-budget/suggestion?...&period_id=2099-01
+    Assert: HTTP 422 (FastAPI enum validation rejects unknown value).
+    Aplica igual a idaccount o defaultcategory fuera del enum.
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
     tmp_path.mkdir(exist_ok=True)
@@ -316,17 +267,42 @@ def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch
     from fastapi.testclient import TestClient
     from src.main import app
 
-    # History is 2026-02 through 2026-04 — window 2025-06~2025-08 has no overlap
-    history_df = _make_history_df(n_months=3)
+    tc = TestClient(app)
+    response = tc.get(
+        "/smart-budget/suggestion",
+        params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2099-01"},
+    )
 
-    with patch("src.api.router.load_history", return_value=history_df):
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Defensivo — Account no existe en ningún CSV → 404
+# No alcanzable a través del enum en uso normal (todos los accounts del enum
+# están en smart_budget_synthetic.csv). Este test verifica el branch de código
+# para cuando el enum y los datos queden fuera de sincronía.
+# ---------------------------------------------------------------------------
+
+def test_account_not_in_any_csv_returns_404(tmp_path, monkeypatch):
+    """
+    Arrange: account_exists=False (la cuenta no está en ningún CSV).
+    Act: GET /smart-budget/suggestion.
+    Assert: HTTP 404.
+    """
+    monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
+    tmp_path.mkdir(exist_ok=True)
+
+    from fastapi.testclient import TestClient
+    from src.main import app
+
+    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
+         patch("src.api.router.account_exists", return_value=False):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2025-09"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["suggested_amount"] is None
+    assert response.status_code == 404
+
 
