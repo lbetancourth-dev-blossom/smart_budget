@@ -1,4 +1,5 @@
 """src/api/router.py — FastAPI router para Smart Budget (DATA-1140)."""
+
 from __future__ import annotations
 
 import os

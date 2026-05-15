@@ -12,6 +12,7 @@ Formato de request (application/json):
 Formato de response (application/json):
   {ver schema acordado en plan.md}
 """
+
 import json
 import sys
 from pathlib import Path

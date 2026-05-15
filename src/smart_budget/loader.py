@@ -5,6 +5,7 @@ Estrategia de fuentes:
   - Si no → cargar test/test_internal.csv + test/test_external.csv, aplicar
     filter_transactions(), normalización de signo OLB, aggregate_monthly().
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -124,9 +125,7 @@ def _load_raw_for_account(
     for rel_path in (_RAW_INTERNAL_CSV, _RAW_EXTERNAL_CSV):
         path = base_dir / rel_path
         if path.exists():
-            frames.append(
-                pd.read_csv(path, dtype=str, keep_default_na=False)
-            )
+            frames.append(pd.read_csv(path, dtype=str, keep_default_na=False))
 
     if not frames:
         return pd.DataFrame()
@@ -146,9 +145,8 @@ def _load_raw_for_account(
     filtered = _normalize_olb_amounts(filtered)
 
     # Paso 5: filtrar por cuenta y categoría solicitadas
-    mask = (
-        (filtered["idaccount"] == idaccount)
-        & (filtered["defaultcategory"] == defaultcategory)
+    mask = (filtered["idaccount"] == idaccount) & (
+        filtered["defaultcategory"] == defaultcategory
     )
     filtered = filtered[mask].reset_index(drop=True)
 
@@ -162,8 +160,15 @@ def _load_raw_for_account(
     aggregated = aggregate_monthly(filtered)
 
     return aggregated[
-        ["idclient", "idcompany", "idaccount", "idcategory",
-         "defaultcategory", "period_yyyymm", "monthly_total"]
+        [
+            "idclient",
+            "idcompany",
+            "idaccount",
+            "idcategory",
+            "defaultcategory",
+            "period_yyyymm",
+            "monthly_total",
+        ]
     ].reset_index(drop=True)
 
 

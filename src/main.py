@@ -1,4 +1,5 @@
 """src/main.py — FastAPI application entry point (DATA-1140)."""
+
 from fastapi import FastAPI
 
 from .api.router import router  # relative import — required for `uvicorn src.main:app`
