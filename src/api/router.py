@@ -40,6 +40,7 @@ class SuggestionResponse(BaseModel):
     suggested_amount: Optional[float]
     confidence: Optional[str]
     basis: Optional[BasisDetail]
+    amount_by_month: Optional[dict[str, Optional[float]]]
     display_label: str
     model_version: str
 
@@ -136,7 +137,10 @@ def get_suggestion(
         confidence=r.get("confidence"),
     )
 
+    # Construir amount_by_month desde la ventana de historial usada
     basis = r.get("basis") or {}
+    amount_by_month = _build_amount_by_month(gated, reference_date, _LOOKBACK)
+
     return SuggestionResponse(
         idaccount=r["idaccount"],
         idclient=r["idclient"],
@@ -152,6 +156,7 @@ def get_suggestion(
             method=basis.get("method", _METHOD),
             treatment=basis.get("treatment", _TREATMENT),
         ),
+        amount_by_month=amount_by_month,
         display_label=r.get("display_label", ""),
         model_version=r.get("model_version", "fase0-v1"),
     )
@@ -175,6 +180,32 @@ def _build_null_response(
         suggested_amount=None,
         confidence=None,
         basis=None,
+        amount_by_month=None,
         display_label="No hay suficiente historial para esta categoría",
         model_version="fase0-v1",
     )
+
+
+def _build_amount_by_month(
+    history: pd.DataFrame,
+    reference_date: str,
+    lookback_months: int,
+) -> dict[str, Optional[float]]:
+    """Retorna los montos mensuales de la ventana usada para calcular la sugerencia.
+
+    El resultado es un dict ordenado cronológicamente, ej.:
+    {"2026-02": 45.00, "2026-03": 0.0, "2026-04": 101.50}
+    Los meses con $0 se muestran como 0.0 (gasto nulo registrado).
+    """
+    ref = pd.Period(reference_date, freq="M")
+    window_start = ref - (lookback_months - 1)
+
+    # Filtrar ventana y construir el dict mes → monto
+    mask = (history["period_yyyymm"] >= str(window_start)) & (
+        history["period_yyyymm"] <= str(ref)
+    )
+    window = history.loc[mask].set_index("period_yyyymm")["monthly_total"]
+
+    # Rellenar meses faltantes dentro de la ventana con 0.0
+    all_periods = [str(window_start + i) for i in range(lookback_months)]
+    return {p: round(float(window.get(p, 0.0)), 2) for p in all_periods}
