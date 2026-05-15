@@ -168,27 +168,38 @@ Query params (todos requeridos, validados por enum):
 
 ---
 
-### Escenarios de prueba
+### Reglas de validación
 
-Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.7):
+El endpoint aplica 3 reglas en orden antes de calcular la sugerencia:
 
-| TC | Descripción | HTTP | `suggested_amount` |
+| # | Regla | Condición | Respuesta |
 |---|---|---|---|
-| T2.1 | Happy path — cuenta con historial completo | `200` | valor > 0 |
-| T2.2 | `suggested_amount` nunca negativo | `200` | ≥ 0.0 |
-| T2.3 | `basis.method == "wma"`, `treatment == "B"` | `200` | valor > 0 |
-| T2.4 | Campo `explanation` ausente en la respuesta | `200` | — |
-| T2.5 | Cuenta/categoría **sin datos suficientes** → historial insuficiente | `200` | `null` |
-| T2.6 | Historial < 2 meses (gating) | `200` | `null` |
-| T2.7 | Parámetro fuera del enum (valor inválido) | `422` | — |
+| 1 | Cuenta no existe | `idaccount` no está en ningún CSV de datos | `404 Not Found` |
+| 2 | Categoría no reconocida | `defaultcategory` no está en el catálogo válido | `422 Unprocessable Entity` |
+| 3 | Sin datos para el período | Cuenta y categoría existen, pero sin historial suficiente | `200` con `suggested_amount: null` |
 
-> **Nota sobre 404:** La respuesta `404` (account not found) es un caso **defensivo** —
-> todos los accounts listados en el dropdown del Swagger existen en los CSVs sintéticos,
-> por lo que no es alcanzable en uso normal. Se verifica en el test unitario
-> `test_account_not_in_any_csv_returns_404` para proteger frente a desincronía entre
-> enum y datos.
+> **Regla 3 en detalle:** aplica en dos sub-casos:
+> - **Sin datos de esa combinación cuenta/categoría** (ej. SYN001 no tiene datos de Groceries)
+> - **Historial < 2 meses** (gating mínimo para calcular una sugerencia confiable)
 
-#### TC-T2.1 — Happy path: cuenta con historial completo → 200 con sugerencia
+---
+
+### Escenarios de prueba (TC-T2.1 – TC-T2.8)
+
+| TC | Regla | Descripción | HTTP | `suggested_amount` |
+|---|---|---|---|---|
+| T2.1 | — | Happy path — cuenta con historial completo | `200` | valor > 0 |
+| T2.2 | — | `suggested_amount` nunca negativo | `200` | ≥ 0.0 |
+| T2.3 | — | `basis.method == "wma"`, `treatment == "B"` | `200` | valor > 0 |
+| T2.4 | — | Campo `explanation` ausente en la respuesta | `200` | — |
+| T2.5 | **Regla 1** | Cuenta **no existe** en los datos | `404` | — |
+| T2.6 | **Regla 2** | Categoría **no reconocida** (fuera del catálogo) | `422` | — |
+| T2.7 | **Regla 3a** | Cuenta y categoría existen, **sin datos** para esa combinación | `200` | `null` |
+| T2.8 | **Regla 3b** | Cuenta y categoría existen, historial **< 2 meses** (gating) | `200` | `null` |
+
+---
+
+#### TC-T2.1 — Happy path: cuenta con historial completo → 200
 
 ```bash
 curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05" | jq .
@@ -216,10 +227,40 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcat
 # Esperado: false
 ```
 
-#### TC-T2.5 — Sin datos para esa combinación cuenta/categoría → 200 null
+#### TC-T2.5 — Regla 1: Cuenta no existe → 404
 
-SYN001 **no tiene datos de Groceries** (sus categorías son: Auto & Transport, Bills & Utilities,
-Entertainment & Leisure, Home & Rent, Pets). Lo mismo aplica para SYN008 + Groceries.
+La cuenta `idaccount` no está en ningún CSV de datos. En uso normal (via Swagger) todos los
+accounts del dropdown existen, por lo que este caso se reproduce vía mock en tests.
+
+```bash
+# No reproducible directamente en el Swagger (todos los accounts del dropdown existen).
+# Se verifica vía test unitario: test_get_suggestion_account_not_found_returns_404
+# Respuesta esperada: HTTP 404
+# { "detail": "idaccount not found" }
+```
+
+#### TC-T2.6 — Regla 2: Categoría no reconocida → 422
+
+FastAPI valida `defaultcategory` contra el catálogo de categorías antes de ejecutar cualquier
+lógica. Si el valor no está en el catálogo → 422.
+
+```bash
+# Categoría que no existe en el catálogo
+curl -s -o /dev/null -w "%{http_code}" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=CategoriaInexistente&period_id=2026-05"
+# Esperado: 422
+
+# También aplica a period_id fuera del rango válido
+curl -s -o /dev/null -w "%{http_code}" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2099-01"
+# Esperado: 422
+```
+
+#### TC-T2.7 — Regla 3a: Cuenta y categoría existen, sin datos → 200 null
+
+SYN001 **existe** en el CSV sintético, `Groceries` **es una categoría válida**, pero SYN001
+no tiene transacciones de Groceries (sus categorías son: `Auto & Transport`, `Bills & Utilities`,
+`Entertainment & Leisure`, `Home & Rent`, `Pets`).
 
 ```bash
 curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05" \
@@ -233,33 +274,21 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultc
 # }
 ```
 
-#### TC-T2.6 — Historial < 2 meses (gating) → 200 null
+Otros ejemplos con la misma respuesta: `SYN008 + Groceries`, `SYN001 + Education`.
 
-Este caso requiere un account+categoría con exactamente 1 mes de datos en el CSV.
-Se verifica vía test unitario (mock con `n_months=1`). Para forzarlo manualmente:
+#### TC-T2.8 — Regla 3b: Cuenta y categoría existen, historial < 2 meses → 200 null
+
+La cuenta y la categoría tienen datos, pero la cantidad de meses con gasto positivo en la
+ventana de lookback es menor a 2 (mínimo requerido para una sugerencia confiable).
+Se verifica vía test unitario (mock `n_months=1`).
 
 ```bash
-# Si el account tiene solo 1 mes de data en la ventana, el gating lo filtra
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN008&defaultcategory=Gas&period_id=2024-01" \
+# Buscar un account+categoría con muy poco historial en los CSVs de prueba
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN008&defaultcategory=Gas&period_id=2025-09" \
   | jq '{suggested_amount, confidence, basis}'
-# Si solo hay 1 mes de historial → { "suggested_amount": null, "confidence": null, "basis": null }
-# Nota: el resultado real depende del historial disponible en los CSVs de prueba.
-```
-
-#### TC-T2.7 — Parámetro fuera del enum → 422
-
-Aplica a cualquier campo que no esté en el dropdown: `idaccount`, `defaultcategory` o `period_id`.
-
-```bash
-# period_id no en el enum
-curl -s -o /dev/null -w "%{http_code}" \
-  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2099-01"
-# Esperado: 422
-
-# Formato de fecha con slash (tampoco está en el enum)
-curl -s -o /dev/null -w "%{http_code}" \
-  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026%2F05"
-# Esperado: 422
+# Si hay < 2 meses en esa ventana:
+# { "suggested_amount": null, "confidence": null, "basis": null }
+# Nota: el resultado concreto depende del historial disponible en los CSVs.
 ```
 
 #### Caso extra — Ver desglose mensual (`amount_by_month`)
