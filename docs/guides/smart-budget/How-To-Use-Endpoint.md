@@ -172,6 +172,18 @@ Query params (todos requeridos, validados por enum):
 
 Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.9):
 
+| TC | Descripción | HTTP | `suggested_amount` |
+|---|---|---|---|
+| T2.1 | Happy path — cuenta con historial completo | `200` | valor > 0 |
+| T2.2 | `suggested_amount` nunca negativo | `200` | ≥ 0.0 |
+| T2.3 | `basis.method == "wma"`, `treatment == "B"` | `200` | valor > 0 |
+| T2.4 | Campo `explanation` ausente en la respuesta | `200` | — |
+| T2.5 | Cuenta **no existe** en ningún CSV | `404` | — |
+| T2.6 | Cuenta existe, **categoría sin datos** | `200` | `null` |
+| T2.7 | `period_id` fuera del enum | `422` | — |
+| T2.8 | Formato de fecha inválido (`2026/05`) | `422` | — |
+| T2.9 | Ventana de lookback sin solapamiento con historial | `200` | `null` |
+
 #### TC-T2.1 — Happy path: cuenta con historial completo → 200 con sugerencia
 
 ```bash
