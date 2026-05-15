@@ -24,6 +24,9 @@ Guía para levantar el endpoint local (FastAPI) y opcionalmente desplegarlo en S
 pip install -r requirements.txt
 pip install -e .
 
+# Si no hay pyproject.toml, usar PYTHONPATH en su lugar:
+export PYTHONPATH="$(pwd)/src"
+
 # Credenciales AWS (solo para extracción S3 o SageMaker)
 aws sso login --profile blossom-dev
 ```
@@ -37,6 +40,7 @@ aws sso login --profile blossom-dev
 ```bash
 # Desde la raíz del repo
 export SMART_BUDGET_DATA_DIR="data/dough"
+export PYTHONPATH="$(pwd)/src"    # si no tienes pip install -e .
 
 uvicorn src.main:app --reload --port 8000
 ```
@@ -48,87 +52,201 @@ El servidor queda disponible en `http://localhost:8000`.
 Abrir en el browser:
 
 ```
-http://localhost:8000/docs      ← Swagger UI (recomendado para explorar)
+http://localhost:8000/docs      ← Swagger UI con dropdowns (recomendado)
 http://localhost:8000/redoc     ← ReDoc
 ```
+
+> Los parámetros `idaccount`, `defaultcategory` y `period_id` aparecen como **listas
+> desplegables** en el Swagger "Try it out" — solo los valores válidos son seleccionables.
+
+---
 
 ### Contrato del endpoint
 
 ```
 GET /smart-budget/suggestion
 
-Query params:
-  idaccount        string  requerido  ID de la cuenta del miembro
-  defaultcategory  string  requerido  Categoría a presupuestar
-  period_id        string  requerido  Mes a presupuestar (formato YYYY-MM)
+Query params (todos requeridos, validados por enum):
+  idaccount        string   ID de la cuenta del miembro
+  defaultcategory  string   Categoría a presupuestar
+  period_id        string   Mes a presupuestar (formato YYYY-MM)
 ```
 
-**Respuesta con sugerencia:**
+**Respuesta con sugerencia** (≥ 2 meses de historial):
 
 ```json
 {
   "idaccount": "EXT2",
+  "idclient": "1",
+  "idcompany": "1",
   "defaultcategory": "Food & Dining",
   "period_id": "2026-05",
   "suggested_amount": 312.50,
+  "confidence": "high",
   "basis": {
     "months_analyzed": 6,
+    "months_with_positive_spend": 6,
     "method": "wma",
-    "data_points": 6,
+    "treatment": "B",
     "period_range": "2025-11 ~ 2026-04"
   },
-  "confidence": "high",
+  "amount_by_month": {
+    "2025-11": 290.00,
+    "2025-12": 310.00,
+    "2026-01": 305.00,
+    "2026-02": 320.00,
+    "2026-03": 330.00,
+    "2026-04": 315.00
+  },
   "display_label": "Basado en tus últimos 6 meses",
   "model_version": "fase0-v1"
 }
 ```
 
-**Respuesta sin sugerencia** (< 2 meses de historial):
+**Respuesta sin sugerencia** (< 2 meses de historial o ventana sin datos):
 
 ```json
 {
-  "idaccount": "EXT2",
-  "defaultcategory": "Entertainment & Leisure",
+  "idaccount": "SYN001",
+  "idclient": "1",
+  "idcompany": "1",
+  "defaultcategory": "Pets",
   "period_id": "2026-05",
   "suggested_amount": null,
-  "basis": null,
   "confidence": null,
+  "basis": null,
+  "amount_by_month": null,
   "display_label": "No hay suficiente historial para esta categoría",
   "model_version": "fase0-v1"
 }
 ```
 
-### Ejemplos con `curl`
+#### Detalle de campos
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `suggested_amount` | `float \| null` | Sugerencia redondeada a 2 decimales; `null` si no hay suficiente historial |
+| `confidence` | `"high" \| "medium" \| "low" \| null` | `high` ≥ 6 meses, `medium` 3–5, `low` 2 |
+| `basis.months_analyzed` | `int` | Meses en la ventana de lookback (default: 3) |
+| `basis.months_with_positive_spend` | `int` | Meses con gasto > 0 usados para calcular el WMA |
+| `basis.method` | `string` | Siempre `"wma"` en Fase 0 |
+| `basis.treatment` | `string` | Siempre `"B"` (treatment del modelo) |
+| `basis.period_range` | `string` | Rango analizado, e.g. `"2025-11 ~ 2026-04"` |
+| `amount_by_month` | `dict \| null` | Gasto mensual por mes de la ventana; `null` si no hay sugerencia |
+
+#### Códigos de respuesta HTTP
+
+| Código | Cuándo ocurre |
+|---|---|
+| `200` | Solicitud válida — puede tener `suggested_amount` o ser `null` |
+| `404` | `idaccount` existe en el enum pero no tiene datos en ningún CSV |
+| `422` | Parámetro con valor fuera del enum (e.g. `period_id=2099-01`, `idaccount=INVALIDO`) |
+
+---
+
+### Valores válidos (enums)
+
+#### `idaccount`
+
+| Valor | Fuente de datos |
+|---|---|
+| `EXT2` | smart_budget_synthetic |
+| `EXT22` | smart_budget_synthetic |
+| `INT31880` | smart_budget_synthetic / test_internal |
+| `SYN001` – `SYN008` | smart_budget_synthetic |
+
+#### `defaultcategory`
+
+`Auto & Transport` · `Bills & Utilities` · `Education` · `Entertainment & Leisure` ·
+`Food & Dining` · `Gas` · `Gifts & Donations` · `Groceries` · `Health & Fitness` ·
+`Home & Rent` · `Personal Care & Beauty` · `Pets` · `Shopping` · `Subscriptions` · `Travel & Trips`
+
+#### `period_id`
+
+`2025-09` · `2025-10` · `2025-11` · `2025-12` · `2026-01` · `2026-02` · `2026-03` · `2026-04` · `2026-05` · `2026-06`
+
+---
+
+### Escenarios de prueba
+
+Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.8):
+
+#### TC-T2.1 — Happy path: cuenta con historial completo → 200 con sugerencia
 
 ```bash
-# Cuenta con historial completo (synthetic)
-curl "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05"
-
-# Otra cuenta — categoría diferente
-curl "http://localhost:8000/smart-budget/suggestion?idaccount=SYN007&defaultcategory=Groceries&period_id=2026-05"
-
-# Cuenta OLB test_internal
-curl "http://localhost:8000/smart-budget/suggestion?idaccount=INT31880&defaultcategory=Gas&period_id=2026-05"
-
-# Caso null — categoría sin suficiente historial
-curl "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05"
-
-# Pretty print con jq
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Groceries&period_id=2026-05" | jq .
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05" | jq .
+# Esperado: HTTP 200, suggested_amount > 0, confidence in ["high","medium","low"]
 ```
 
-### Cuentas y categorías disponibles en los datos de prueba
+#### TC-T2.2 — `suggested_amount` siempre ≥ 0
 
-| idaccount | Fuente | Categorías con historial |
-|---|---|---|
-| `EXT2` | smart_budget_synthetic | Auto & Transport, Bills & Utilities, Food & Dining, Gas, Groceries, + más |
-| `SYN007` | smart_budget_synthetic | ídem |
-| `SYN002` | smart_budget_synthetic | ídem |
-| `EXT22` | smart_budget_synthetic | ídem |
-| `INT31880` | smart_budget_synthetic / test_internal | ídem |
+```bash
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05" | jq '.suggested_amount'
+# Esperado: número >= 0.0, nunca negativo
+```
 
-Categorías disponibles: `Auto & Transport`, `Bills & Utilities`, `Entertainment & Leisure`,
-`Food & Dining`, `Gas`, `Groceries`, `Health & Fitness`, `Home & Rent`, `Pets`, `Shopping`.
+#### TC-T2.3 — Método y treatment correctos
+
+```bash
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN002&defaultcategory=Groceries&period_id=2026-05" | jq '.basis'
+# Esperado: { "method": "wma", "treatment": "B", ... }
+```
+
+#### TC-T2.4 — El campo `explanation` NO debe aparecer en la respuesta
+
+```bash
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Groceries&period_id=2026-05" | jq 'has("explanation")'
+# Esperado: false
+```
+
+#### TC-T2.5 — Cuenta inexistente en datos → 404
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN008&defaultcategory=Groceries&period_id=2026-05"
+# Esperado: 404
+# (SYN008 está en el enum pero puede no tener datos en los CSVs locales)
+```
+
+#### TC-T2.6 — `period_id` fuera del enum → 422
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2099-01"
+# Esperado: 422 (valor no listado en el enum PeriodId)
+```
+
+#### TC-T2.7 — Formato de fecha inválido → 422
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" \
+  "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026%2F05"
+# Esperado: 422 (2026/05 no está en el enum — separador slash inválido)
+```
+
+#### TC-T2.8 — Ventana de lookback sin datos (período muy antiguo) → 200 null
+
+```bash
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2025-09" | jq '{suggested_amount, confidence, basis}'
+# Esperado: { "suggested_amount": null, "confidence": null, "basis": null }
+# (ventana 2025-06~2025-08 está antes del historial disponible)
+```
+
+#### Caso extra — Categoría sin historial (gating por datos insuficientes) → 200 null
+
+```bash
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05" | jq '{suggested_amount, display_label}'
+# Esperado: { "suggested_amount": null, "display_label": "No hay suficiente historial para esta categoría" }
+```
+
+#### Caso extra — Ver desglose mensual (`amount_by_month`)
+
+```bash
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Groceries&period_id=2026-05" | jq '.amount_by_month'
+# Esperado: objeto con claves YYYY-MM y valores float, e.g. {"2025-11": 200.5, "2025-12": 180.0, ...}
+```
+
+---
 
 ### Variables de entorno
 
