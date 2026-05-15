@@ -138,8 +138,9 @@ Query params (todos requeridos, validados por enum):
 
 | Código | Cuándo ocurre |
 |---|---|
-| `200` | Solicitud válida — puede tener `suggested_amount` o ser `null` |
-| `404` | `idaccount` existe en el enum pero no tiene datos en ningún CSV |
+| `200` con datos | Solicitud válida y ≥ 2 meses de historial en la ventana |
+| `200` con `null` | Cuenta existe pero: sin datos para esa categoría, o < 2 meses, o ventana sin solapamiento |
+| `404` | `idaccount` no existe en ningún CSV de datos |
 | `422` | Parámetro con valor fuera del enum (e.g. `period_id=2099-01`, `idaccount=INVALIDO`) |
 
 ---
@@ -199,13 +200,23 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcat
 # Esperado: false
 ```
 
-#### TC-T2.5 — Cuenta inexistente en datos → 404
+#### TC-T2.5 — Cuenta que no existe en ningún CSV → 404
 
 ```bash
+# Esta cuenta está en el enum pero si no tiene datos en ningún CSV → 404
 curl -s -o /dev/null -w "%{http_code}" \
   "http://localhost:8000/smart-budget/suggestion?idaccount=SYN008&defaultcategory=Groceries&period_id=2026-05"
-# Esperado: 404
-# (SYN008 está en el enum pero puede no tener datos en los CSVs locales)
+# Esperado: 404 (la cuenta no tiene registros en los CSVs disponibles)
+```
+
+#### TC-T2.9 — Cuenta existe pero sin datos para esa categoría → 200 null
+
+```bash
+# La cuenta SYN001 existe, pero puede no tener historial en "Pets"
+curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05" \
+  | jq '{suggested_amount, display_label}'
+# Esperado: { "suggested_amount": null, "display_label": "No hay suficiente historial para esta categoría" }
+# → La cuenta EXISTE; simplemente no hay datos para esa categoría específica
 ```
 
 #### TC-T2.6 — `period_id` fuera del enum → 422

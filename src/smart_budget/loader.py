@@ -177,6 +177,43 @@ def _load_raw_for_account(
 # ---------------------------------------------------------------------------
 
 
+def account_exists(
+    idaccount: str,
+    base_dir: "str | Path" = "data/dough",
+) -> bool:
+    """
+    Verifica si idaccount tiene datos en cualquier categoría.
+
+    Útil para distinguir "cuenta no existe" (→ 404) de "cuenta existe pero
+    no tiene datos en la categoría pedida" (→ 200 null).
+
+    Args:
+        idaccount: ID de la cuenta del miembro.
+        base_dir: Directorio raíz de datos. Default: data/dough.
+
+    Returns:
+        True si la cuenta tiene al menos un registro en alguna fuente de datos.
+    """
+    base = Path(base_dir)
+    if not base.exists():
+        raise FileNotFoundError(f"base_dir no encontrado: {base}")
+
+    # Verificar en synthetic (la fuente de mayor prioridad)
+    if idaccount in _synthetic_accounts(base):
+        return True
+
+    # Verificar en raw CSVs
+    for csv_name in (_RAW_INTERNAL_CSV, _RAW_EXTERNAL_CSV):
+        path = base / csv_name
+        if not path.exists():
+            continue
+        df = pd.read_csv(path, usecols=["idaccount"], dtype=str, nrows=None)
+        if idaccount in df["idaccount"].values:
+            return True
+
+    return False
+
+
 def load_history(
     idaccount: str,
     defaultcategory: str,

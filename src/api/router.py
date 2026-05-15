@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from smart_budget.aggregator import apply_gating
-from smart_budget.loader import load_history
+from smart_budget.loader import account_exists, load_history
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
@@ -145,10 +145,14 @@ def get_suggestion(
         log.error("smart_budget.suggestion.base_dir_not_found", base_dir=str(base_dir))
         raise HTTPException(status_code=500, detail="data directory not configured")
 
-    # Paso 5: cuenta no encontrada
+    # Paso 5: distinguir cuenta inexistente (404) de categoría sin datos (200 null)
     if history.empty:
-        log.info("smart_budget.suggestion.not_found")
-        raise HTTPException(status_code=404, detail="idaccount not found")
+        if not account_exists(idaccount_val, base_dir):
+            log.info("smart_budget.suggestion.not_found")
+            raise HTTPException(status_code=404, detail="idaccount not found")
+        # Cuenta existe pero no tiene datos para esta categoría → 200 null
+        log.info("smart_budget.suggestion.null", reason="no_data_for_category")
+        return _build_null_response(idaccount_val, pd.DataFrame(), defaultcategory_val, period_id_val)
 
     # Paso 6: gating — mínimo 2 meses con gasto positivo
     gated = apply_gating(history, min_months=_MIN_MONTHS_GATING)

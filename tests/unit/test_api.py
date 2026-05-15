@@ -175,13 +175,13 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.5 — Unknown account → 404
+# TC-T2.5 — Cuenta que no existe en ningún CSV → 404
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
     """
-    Arrange: load_history returns empty DataFrame (account not found).
-    Act: GET /smart-budget/suggestion with valid enum values but empty history.
+    Arrange: load_history devuelve DataFrame vacío Y account_exists devuelve False.
+    Act: GET /smart-budget/suggestion con una cuenta que no tiene datos en ningún CSV.
     Assert: HTTP 404.
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
@@ -190,7 +190,8 @@ def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from src.main import app
 
-    with patch("src.api.router.load_history", return_value=pd.DataFrame()):
+    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
+         patch("src.api.router.account_exists", return_value=False):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
@@ -202,6 +203,43 @@ def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
         )
 
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# TC-T2.9 — Cuenta existe pero sin datos para la categoría → 200 null
+# ---------------------------------------------------------------------------
+
+def test_get_suggestion_account_exists_no_category_data_returns_null(tmp_path, monkeypatch):
+    """
+    Arrange: load_history devuelve DataFrame vacío PERO account_exists devuelve True.
+             La cuenta existe pero no tiene historial para la categoría pedida.
+    Act: GET /smart-budget/suggestion.
+    Assert: HTTP 200; suggested_amount == null; display_label indica historial insuficiente.
+    """
+    monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
+    tmp_path.mkdir(exist_ok=True)
+
+    from fastapi.testclient import TestClient
+    from src.main import app
+
+    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
+         patch("src.api.router.account_exists", return_value=True):
+        tc = TestClient(app)
+        response = tc.get(
+            "/smart-budget/suggestion",
+            params={
+                "idaccount": "SYN001",
+                "defaultcategory": "Pets",
+                "period_id": "2026-05",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suggested_amount"] is None
+    assert body["confidence"] is None
+    assert body["basis"] is None
+    assert "historial" in body["display_label"].lower()
 
 
 # ---------------------------------------------------------------------------
