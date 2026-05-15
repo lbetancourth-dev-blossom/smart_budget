@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import re
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +17,55 @@ from smart_budget.loader import load_history
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
+
+# ---------------------------------------------------------------------------
+# Enums para Swagger UI — dropdowns en "Try it out"
+# ---------------------------------------------------------------------------
+
+
+class IdAccount(str, Enum):
+    EXT2 = "EXT2"
+    EXT22 = "EXT22"
+    INT31880 = "INT31880"
+    SYN001 = "SYN001"
+    SYN002 = "SYN002"
+    SYN003 = "SYN003"
+    SYN004 = "SYN004"
+    SYN005 = "SYN005"
+    SYN006 = "SYN006"
+    SYN007 = "SYN007"
+    SYN008 = "SYN008"
+
+
+class Category(str, Enum):
+    auto_transport = "Auto & Transport"
+    bills_utilities = "Bills & Utilities"
+    education = "Education"
+    entertainment = "Entertainment & Leisure"
+    food_dining = "Food & Dining"
+    gas = "Gas"
+    gifts_donations = "Gifts & Donations"
+    groceries = "Groceries"
+    health_fitness = "Health & Fitness"
+    home_rent = "Home & Rent"
+    personal_care = "Personal Care & Beauty"
+    pets = "Pets"
+    shopping = "Shopping"
+    subscriptions = "Subscriptions"
+    travel = "Travel & Trips"
+
+
+class PeriodId(str, Enum):
+    p_2025_09 = "2025-09"
+    p_2025_10 = "2025-10"
+    p_2025_11 = "2025-11"
+    p_2025_12 = "2025-12"
+    p_2026_01 = "2026-01"
+    p_2026_02 = "2026-02"
+    p_2026_03 = "2026-03"
+    p_2026_04 = "2026-04"
+    p_2026_05 = "2026-05"
+    p_2026_06 = "2026-06"
 
 # ---------------------------------------------------------------------------
 # Schemas de respuesta
@@ -51,8 +100,6 @@ class SuggestionResponse(BaseModel):
 
 router = APIRouter(prefix="/smart-budget", tags=["Smart Budget"])
 
-_PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
-
 _METHOD = "wma"
 _TREATMENT = "B"
 _LOOKBACK = 3
@@ -61,9 +108,9 @@ _MIN_MONTHS_GATING = 2
 
 @router.get("/suggestion", response_model=SuggestionResponse)
 def get_suggestion(
-    idaccount: str = Query(..., description="ID de la cuenta del miembro"),
-    defaultcategory: str = Query(..., description="Categoría (ej: GROCERIES)"),
-    period_id: str = Query(..., description="Mes a presupuestar (YYYY-MM)"),
+    idaccount: IdAccount = Query(..., description="ID de la cuenta del miembro"),
+    defaultcategory: Category = Query(..., description="Categoría a presupuestar"),
+    period_id: PeriodId = Query(..., description="Mes a presupuestar (YYYY-MM)"),
 ) -> SuggestionResponse:
     """
     Calcula y retorna una sugerencia de presupuesto mensual on-demand.
@@ -71,21 +118,19 @@ def get_suggestion(
     El historial considerado es los 3 meses ANTERIORES a period_id (lookback=3,
     reference_date = period_id − 1 mes). Method=WMA, Treatment=B (DATA-1138).
     """
-    # Paso 1: validar formato period_id
-    if not _PERIOD_RE.match(period_id):
-        raise HTTPException(
-            status_code=422,
-            detail=f"period_id debe tener formato YYYY-MM, recibido: {period_id!r}",
-        )
+    # Extraer valores string de los enums
+    idaccount_val: str = idaccount.value
+    defaultcategory_val: str = defaultcategory.value
+    period_id_val: str = period_id.value
 
     # Paso 2: reference_date = period_id − 1 mes
-    reference_date = str(pd.Period(period_id, freq="M") - 1)
+    reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
     # TODO(prod): hashear idaccount con SHA-256 + SB_LOG_SALT antes de promover a alpha/prod
     log = logger.bind(
-        idaccount=idaccount,
-        defaultcategory=defaultcategory,
-        period_id=period_id,
+        idaccount=idaccount_val,
+        defaultcategory=defaultcategory_val,
+        period_id=period_id_val,
         reference_date=reference_date,
     )
     log.info("smart_budget.suggestion.start")
@@ -95,7 +140,7 @@ def get_suggestion(
 
     # Paso 4: cargar historial
     try:
-        history = load_history(idaccount, defaultcategory, base_dir)
+        history = load_history(idaccount_val, defaultcategory_val, base_dir)
     except FileNotFoundError:
         log.error("smart_budget.suggestion.base_dir_not_found", base_dir=str(base_dir))
         raise HTTPException(status_code=500, detail="data directory not configured")
@@ -110,7 +155,7 @@ def get_suggestion(
 
     if gated.empty:
         log.info("smart_budget.suggestion.null", reason="gating_min_months")
-        return _build_null_response(idaccount, history, defaultcategory, period_id)
+        return _build_null_response(idaccount_val, history, defaultcategory_val, period_id_val)
 
     # Paso 7: compute_budget_suggestions
     results = compute_budget_suggestions(
@@ -123,14 +168,14 @@ def get_suggestion(
 
     if not results:
         log.info("smart_budget.suggestion.null", reason="no_results_in_window")
-        return _build_null_response(idaccount, history, defaultcategory, period_id)
+        return _build_null_response(idaccount_val, history, defaultcategory_val, period_id_val)
 
     r = results[0]
 
     # Paso 8: null suggestion (treatment B all-zeros en ventana)
     if r.get("suggested_amount") is None:
         log.info("smart_budget.suggestion.null", reason="treatment_b_all_zeros")
-        return _build_null_response(idaccount, history, defaultcategory, period_id)
+        return _build_null_response(idaccount_val, history, defaultcategory_val, period_id_val)
 
     log.info(
         "smart_budget.suggestion.done",
@@ -146,8 +191,8 @@ def get_suggestion(
         idclient=r["idclient"],
         idcompany=r["idcompany"],
         defaultcategory=r["defaultcategory"],
-        period_id=period_id,
-        suggested_amount=r["suggested_amount"],
+        period_id=period_id_val,
+        suggested_amount=round(r["suggested_amount"], 2),
         confidence=r.get("confidence"),
         basis=BasisDetail(
             months_analyzed=basis.get("months_analyzed", 0),
