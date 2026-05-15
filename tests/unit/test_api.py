@@ -1,6 +1,6 @@
 """tests/unit/test_api.py — Integration tests for FastAPI endpoint (DATA-1140).
 
-Test contracts: TC-T2.1 – TC-T2.8
+Test contracts: TC-T2.1 – TC-T2.9
 Uses TestClient from starlette (via fastapi.testclient).
 """
 from __future__ import annotations
@@ -206,7 +206,7 @@ def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.9 — Cuenta existe pero sin datos para la categoría → 200 null
+# TC-T2.6 — Cuenta existe pero sin datos para la categoría → 200 null
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_account_exists_no_category_data_returns_null(tmp_path, monkeypatch):
@@ -243,7 +243,7 @@ def test_get_suggestion_account_exists_no_category_data_returns_null(tmp_path, m
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.6 — Invalid param value (not in enum) → 422
+# TC-T2.7 — Invalid param value (not in enum) → 422
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
@@ -268,7 +268,7 @@ def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.7 — Insufficient data (1 month) → 200 null response
+# TC-T2.8 — Insufficient data (1 month) → 200 null response
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_insufficient_data_returns_null_200(tmp_path, monkeypatch):
@@ -301,7 +301,7 @@ def test_get_suggestion_insufficient_data_returns_null_200(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.8 — period_id at edge of enum with no data in window → 200 null
+# TC-T2.9 — period_id at edge of enum with no data in window → 200 null
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch):

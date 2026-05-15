@@ -170,7 +170,7 @@ Query params (todos requeridos, validados por enum):
 
 ### Escenarios de prueba
 
-Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.8):
+Los siguientes comandos `curl` cubren todos los casos de uso del endpoint (equivalentes a los test contracts TC-T2.1 – TC-T2.9):
 
 #### TC-T2.1 — Happy path: cuenta con historial completo → 200 con sugerencia
 
@@ -209,7 +209,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Esperado: 404 (la cuenta no tiene registros en los CSVs disponibles)
 ```
 
-#### TC-T2.9 — Cuenta existe pero sin datos para esa categoría → 200 null
+#### TC-T2.6 — Cuenta existe pero sin datos para esa categoría → 200 null
 
 ```bash
 # La cuenta SYN001 existe, pero puede no tener historial en "Pets"
@@ -219,7 +219,7 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultc
 # → La cuenta EXISTE; simplemente no hay datos para esa categoría específica
 ```
 
-#### TC-T2.6 — `period_id` fuera del enum → 422
+#### TC-T2.7 — `period_id` fuera del enum → 422
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" \
@@ -227,7 +227,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Esperado: 422 (valor no listado en el enum PeriodId)
 ```
 
-#### TC-T2.7 — Formato de fecha inválido → 422
+#### TC-T2.8 — Formato de fecha inválido → 422
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" \
@@ -235,19 +235,12 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Esperado: 422 (2026/05 no está en el enum — separador slash inválido)
 ```
 
-#### TC-T2.8 — Ventana de lookback sin datos (período muy antiguo) → 200 null
+#### TC-T2.9 — Ventana de lookback sin datos (período muy antiguo) → 200 null
 
 ```bash
 curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2025-09" | jq '{suggested_amount, confidence, basis}'
 # Esperado: { "suggested_amount": null, "confidence": null, "basis": null }
 # (ventana 2025-06~2025-08 está antes del historial disponible)
-```
-
-#### Caso extra — Categoría sin historial (gating por datos insuficientes) → 200 null
-
-```bash
-curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Pets&period_id=2026-05" | jq '{suggested_amount, display_label}'
-# Esperado: { "suggested_amount": null, "display_label": "No hay suficiente historial para esta categoría" }
 ```
 
 #### Caso extra — Ver desglose mensual (`amount_by_month`)
