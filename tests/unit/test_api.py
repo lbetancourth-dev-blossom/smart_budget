@@ -29,7 +29,7 @@ def client(tmp_path, monkeypatch):
 
 def _make_history_df(
     idaccount="SYN001",
-    defaultcategory="GROCERIES",
+    defaultcategory="Groceries",
     idclient="1",
     idcompany="1",
     n_months=3,
@@ -54,8 +54,8 @@ def _make_history_df(
 
 def test_get_suggestion_synthetic_account_returns_200(tmp_path, monkeypatch):
     """
-    Arrange: mock load_history to return 3-month history for SYN001/GROCERIES.
-    Act: GET /smart-budget/suggestion?idaccount=SYN001&defaultcategory=GROCERIES&period_id=2026-05
+    Arrange: mock load_history to return 3-month history for SYN001/Groceries.
+    Act: GET /smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05
     Assert: HTTP 200; body contains all expected fields.
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
@@ -70,7 +70,7 @@ def test_get_suggestion_synthetic_account_returns_200(tmp_path, monkeypatch):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026-05"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -104,7 +104,7 @@ def test_get_suggestion_suggested_amount_non_negative(tmp_path, monkeypatch):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026-05"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -135,7 +135,7 @@ def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026-05"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -167,7 +167,7 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026-05"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -181,7 +181,7 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
 def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
     """
     Arrange: load_history returns empty DataFrame (account not found).
-    Act: GET /smart-budget/suggestion?idaccount=CUENTA_INEXISTENTE_ZZZ...
+    Act: GET /smart-budget/suggestion with valid enum values but empty history.
     Assert: HTTP 404.
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
@@ -195,8 +195,8 @@ def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
         response = tc.get(
             "/smart-budget/suggestion",
             params={
-                "idaccount": "CUENTA_INEXISTENTE_ZZZ",
-                "defaultcategory": "GROCERIES",
+                "idaccount": "SYN001",
+                "defaultcategory": "Groceries",
                 "period_id": "2026-05",
             },
         )
@@ -205,14 +205,14 @@ def test_get_suggestion_unknown_account_returns_404(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.6 — Invalid period_id format → 422
+# TC-T2.6 — Invalid param value (not in enum) → 422
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
     """
-    Arrange: any account, period_id="2026/05" (slash instead of dash).
-    Act: GET /smart-budget/suggestion?...&period_id=2026/05
-    Assert: HTTP 422.
+    Arrange: period_id value not in the PeriodId enum (e.g. "2099-01").
+    Act: GET /smart-budget/suggestion?...&period_id=2099-01
+    Assert: HTTP 422 (FastAPI enum validation rejects unknown value).
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
     tmp_path.mkdir(exist_ok=True)
@@ -223,7 +223,7 @@ def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
     tc = TestClient(app)
     response = tc.get(
         "/smart-budget/suggestion",
-        params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026/05"},
+        params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2099-01"},
     )
 
     assert response.status_code == 422
@@ -252,7 +252,7 @@ def test_get_suggestion_insufficient_data_returns_null_200(tmp_path, monkeypatch
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026-05"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -263,14 +263,14 @@ def test_get_suggestion_insufficient_data_returns_null_200(tmp_path, monkeypatch
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.8 — Future period_id with no data in window → 200 null response
+# TC-T2.8 — period_id at edge of enum with no data in window → 200 null
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch):
     """
-    Arrange: history has data for 2026-02/03/04; period_id=2030-01 → window 2029-10~2029-12.
-    Act: GET /smart-budget/suggestion?...&period_id=2030-01
-    Assert: HTTP 200 with null response (no data in that window).
+    Arrange: history has data for 2026-02/03/04; period_id=2025-09 → window 2025-06~2025-08.
+    Act: GET /smart-budget/suggestion?...&period_id=2025-09
+    Assert: HTTP 200 with null response (window is entirely before history).
     """
     monkeypatch.setenv("SMART_BUDGET_DATA_DIR", str(tmp_path))
     tmp_path.mkdir(exist_ok=True)
@@ -278,16 +278,17 @@ def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch
     from fastapi.testclient import TestClient
     from src.main import app
 
-    # History is 2026-02 through 2026-04 — won't match 2029 window
+    # History is 2026-02 through 2026-04 — window 2025-06~2025-08 has no overlap
     history_df = _make_history_df(n_months=3)
 
     with patch("src.api.router.load_history", return_value=history_df):
         tc = TestClient(app)
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2030-01"},
+            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2025-09"},
         )
 
     assert response.status_code == 200
     body = response.json()
     assert body["suggested_amount"] is None
+
