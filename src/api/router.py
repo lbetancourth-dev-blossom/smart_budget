@@ -80,6 +80,7 @@ def get_suggestion(
     # Paso 2: reference_date = period_id − 1 mes
     reference_date = str(pd.Period(period_id, freq="M") - 1)
 
+    # TODO(prod): hashear idaccount con SHA-256 + SB_LOG_SALT antes de promover a alpha/prod
     log = logger.bind(
         idaccount=idaccount,
         defaultcategory=defaultcategory,
