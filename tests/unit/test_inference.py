@@ -113,12 +113,15 @@ def test_inference_predict_fn_returns_valid_schema(tmp_path):
          "idcategory": "5", "defaultcategory": "Groceries",
          "period_yyyymm": "2026-04", "monthly_total": "340.0"},
     ]
-    pd.DataFrame(synth_rows).to_csv(tmp_path / "smart_budget_synthetic.csv", index=False)
-    (tmp_path / "test_internal.csv").write_text(
+    # CSVs en data/ — igual que estructura del tarball en el container
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(synth_rows).to_csv(data_dir / "smart_budget_synthetic.csv", index=False)
+    (data_dir / "test_internal.csv").write_text(
         "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
         "incomeexpenditure,deletedat,status\n"
     )
-    (tmp_path / "test_external.csv").write_text(
+    (data_dir / "test_external.csv").write_text(
         "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
         "incomeexpenditure,deletedat,status\n"
     )
@@ -153,12 +156,15 @@ def test_inference_predict_fn_gating(tmp_path):
          "idcategory": "5", "defaultcategory": "Groceries",
          "period_yyyymm": "2026-02", "monthly_total": "300.0"},
     ]
-    pd.DataFrame(synth_rows).to_csv(tmp_path / "smart_budget_synthetic.csv", index=False)
-    (tmp_path / "test_internal.csv").write_text(
+    # CSVs en data/ — igual que estructura del tarball en el container
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(synth_rows).to_csv(data_dir / "smart_budget_synthetic.csv", index=False)
+    (data_dir / "test_internal.csv").write_text(
         "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
         "incomeexpenditure,deletedat,status\n"
     )
-    (tmp_path / "test_external.csv").write_text(
+    (data_dir / "test_external.csv").write_text(
         "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
         "incomeexpenditure,deletedat,status\n"
     )

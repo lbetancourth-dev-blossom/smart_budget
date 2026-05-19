@@ -130,7 +130,8 @@ def predict_fn(data: dict, model) -> dict:
     defaultcategory = data["defaultcategory"]
     period_id = data["period_id"]
 
-    base_dir = Path(model) / "data"  # CSVs empacados en data/ dentro del tarball    reference_date = str(pd.Period(period_id, freq="M") - 1)
+    base_dir = Path(model) / "data"  # CSVs empacados en data/ dentro del tarball
+    reference_date = str(pd.Period(period_id, freq="M") - 1)
 
     # Limpiar caché para que cada invocación lea los CSVs bundleados
     _synthetic_accounts.cache_clear()
