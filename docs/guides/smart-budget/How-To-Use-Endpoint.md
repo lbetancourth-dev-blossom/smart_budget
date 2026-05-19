@@ -347,6 +347,17 @@ El endpoint SageMaker aplica las mismas 3 reglas que el endpoint local FastAPI:
 > En SageMaker no hay códigos HTTP 404/422 como en FastAPI — los errores de validación
 > llegan como excepciones que SageMaker retorna como error 400 (`ModelError`).
 
+### ⚠️ Compatibilidad de versiones del SDK de SageMaker
+
+| Versión | Funciona | Notas |
+|---|---|---|
+| `3.8.5` | ✅ | Versión estable — `SKLearnModel`, `get_execution_role()` funcionan correctamente |
+| `4.0.x` | ❌ | Breaking change: requiere `sagemaker_core` como módulo Python; `get_execution_role` no importable en Studio |
+| `4.1.x` | ❌ | Mismo problema que 4.0 |
+
+Si el entorno de Studio tiene `sagemaker >= 4.0`, la primera celda del notebook instala `sagemaker==3.8.5` automáticamente.
+**Después de correr esa celda, reiniciar el kernel antes de continuar.**
+
 ### Deploy completo
 
 El notebook `notebooks/smart_budget_sagemaker_endpoint.ipynb` guía el proceso end-to-end:
