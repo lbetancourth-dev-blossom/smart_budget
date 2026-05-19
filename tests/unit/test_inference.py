@@ -1,4 +1,4 @@
-"""tests/unit/test_inference.py — Unit tests for src/api/inference.py (DATA-1140).
+"""tests/unit/test_inference.py — Unit tests for src/sagemaker/inference.py (DATA-1140).
 
 Test contracts: TC-T5.1 – TC-T5.6
 """
@@ -19,12 +19,12 @@ def test_inference_model_fn(tmp_path):
     Assert: returns a Path that contains the 3 CSV files.
     """
     import pandas as pd
-    from src.api.inference import model_fn
+    from src.sagemaker.inference import model_fn
 
     # Create bundled CSV structure (like inside model.tar.gz)
     (tmp_path / "smart_budget_synthetic.csv").write_text(
         "idclient,idcompany,idaccount,idcategory,defaultcategory,period_yyyymm,monthly_total\n"
-        "1,1,SYN001,5,GROCERIES,2026-02,300.0\n"
+        "1,1,SYN001,5,Groceries,2026-02,300.0\n"
     )
     (tmp_path / "test_internal.csv").write_text(
         "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
@@ -53,11 +53,11 @@ def test_inference_input_fn_valid():
     Act: input_fn(json_str, "application/json").
     Assert: dict with exactly the 3 expected keys.
     """
-    from src.api.inference import input_fn
+    from src.sagemaker.inference import input_fn
 
     payload = json.dumps({
         "idaccount": "INT23",
-        "defaultcategory": "GROCERIES",
+        "defaultcategory": "Groceries",
         "period_id": "2026-05",
     })
 
@@ -68,7 +68,7 @@ def test_inference_input_fn_valid():
     assert "defaultcategory" in result
     assert "period_id" in result
     assert result["idaccount"] == "INT23"
-    assert result["defaultcategory"] == "GROCERIES"
+    assert result["defaultcategory"] == "Groceries"
     assert result["period_id"] == "2026-05"
 
 
@@ -82,7 +82,7 @@ def test_inference_input_fn_invalid_json():
     Act: input_fn("not-json", "application/json").
     Assert: ValueError (or json.JSONDecodeError) raised.
     """
-    from src.api.inference import input_fn
+    from src.sagemaker.inference import input_fn
 
     with pytest.raises((ValueError, json.JSONDecodeError, Exception)):
         input_fn("not-json", "application/json")
@@ -99,18 +99,18 @@ def test_inference_predict_fn_returns_valid_schema(tmp_path):
     Assert: dict with suggested_amount >= 0 (or null) and confidence in expected set.
     """
     import pandas as pd
-    from src.api.inference import predict_fn
+    from src.sagemaker.inference import predict_fn
 
     # Build synthetic CSV
     synth_rows = [
         {"idclient": "1", "idcompany": "1", "idaccount": "SYN001",
-         "idcategory": "5", "defaultcategory": "GROCERIES",
+         "idcategory": "5", "defaultcategory": "Groceries",
          "period_yyyymm": "2026-02", "monthly_total": "300.0"},
         {"idclient": "1", "idcompany": "1", "idaccount": "SYN001",
-         "idcategory": "5", "defaultcategory": "GROCERIES",
+         "idcategory": "5", "defaultcategory": "Groceries",
          "period_yyyymm": "2026-03", "monthly_total": "320.0"},
         {"idclient": "1", "idcompany": "1", "idaccount": "SYN001",
-         "idcategory": "5", "defaultcategory": "GROCERIES",
+         "idcategory": "5", "defaultcategory": "Groceries",
          "period_yyyymm": "2026-04", "monthly_total": "340.0"},
     ]
     pd.DataFrame(synth_rows).to_csv(tmp_path / "smart_budget_synthetic.csv", index=False)
@@ -123,7 +123,7 @@ def test_inference_predict_fn_returns_valid_schema(tmp_path):
         "incomeexpenditure,deletedat,status\n"
     )
 
-    data = {"idaccount": "SYN001", "defaultcategory": "GROCERIES", "period_id": "2026-05"}
+    data = {"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"}
 
     result = predict_fn(data, str(tmp_path))
 
@@ -145,12 +145,12 @@ def test_inference_predict_fn_gating(tmp_path):
     Assert: suggested_amount == null; confidence == null.
     """
     import pandas as pd
-    from src.api.inference import predict_fn
+    from src.sagemaker.inference import predict_fn
 
     # Only 1 month — gating min_months=2 will filter it out
     synth_rows = [
         {"idclient": "1", "idcompany": "1", "idaccount": "GATED001",
-         "idcategory": "5", "defaultcategory": "GROCERIES",
+         "idcategory": "5", "defaultcategory": "Groceries",
          "period_yyyymm": "2026-02", "monthly_total": "300.0"},
     ]
     pd.DataFrame(synth_rows).to_csv(tmp_path / "smart_budget_synthetic.csv", index=False)
@@ -163,7 +163,7 @@ def test_inference_predict_fn_gating(tmp_path):
         "incomeexpenditure,deletedat,status\n"
     )
 
-    data = {"idaccount": "GATED001", "defaultcategory": "GROCERIES", "period_id": "2026-05"}
+    data = {"idaccount": "GATED001", "defaultcategory": "Groceries", "period_id": "2026-05"}
 
     result = predict_fn(data, str(tmp_path))
 
@@ -181,13 +181,13 @@ def test_inference_output_fn():
     Act: output_fn(prediction, "application/json").
     Assert: string JSON that can be parsed and contains schema fields.
     """
-    from src.api.inference import output_fn
+    from src.sagemaker.inference import output_fn
 
     prediction = {
         "idaccount": "INT23",
         "idclient": "1",
         "idcompany": "1",
-        "defaultcategory": "GROCERIES",
+        "defaultcategory": "Groceries",
         "period_id": "2026-05",
         "suggested_amount": 300.0,
         "confidence": "medium",

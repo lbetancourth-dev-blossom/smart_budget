@@ -1,4 +1,8 @@
-"""src/api/inference.py — Script de inferencia para endpoint SageMaker (DATA-1140).
+"""src/sagemaker/inference.py — Script de inferencia para endpoint SageMaker (DATA-1140).
+
+Este archivo es EXCLUSIVO para SageMaker. No importa ni depende de FastAPI,
+uvicorn ni ningún otro framework web. SageMaker maneja el HTTP layer internamente
+(gunicorn + Flask propios del container sklearn:1.2-1).
 
 Contrato SageMaker SKLearnModel:
   model_fn(model_dir) → carga artefactos; retorna base_dir como "model"
@@ -6,7 +10,7 @@ Contrato SageMaker SKLearnModel:
   predict_fn(data, model) → ejecuta pipeline WMA → dict de sugerencia
   output_fn(prediction, accept) → serializa a JSON string
 
-Reglas de validación (mismas que el endpoint FastAPI local):
+Reglas de validación (mismas que el endpoint FastAPI local en src/api/router.py):
   Regla 1: Si la cuenta no existe en los datos → ValueError (SageMaker retorna error 400)
   Regla 2: Si la categoría no es válida → ValueError (SageMaker retorna error 400)
   Regla 3: Si cuenta y categoría existen pero sin datos para el período → null en sugerencia
