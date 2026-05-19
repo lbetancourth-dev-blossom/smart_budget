@@ -1,0 +1,8 @@
+# Dependencias para el container SageMaker sklearn:1.2-1 (Python 3.9)
+# numpy y pandas ya vienen en el container — pinear para evitar upgrades.
+# statsmodels NO se instala aquí: se importa lazy solo en compute_holt_winters(),
+# que nunca se llama en SageMaker (method=wma). Instalar statsmodels causa
+# conflictos de ABI con el numpy precompilado del container.
+numpy==1.23.5
+pandas==1.5.3
+structlog>=21.0.0

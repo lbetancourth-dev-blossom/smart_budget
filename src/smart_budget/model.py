@@ -5,7 +5,9 @@ Pipeline: apply_treatment → compute method → confidence → explanation → 
 from __future__ import annotations
 
 import pandas as pd
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+# statsmodels se importa solo cuando se usa Holt-Winters — evita conflictos
+# de ABI en entornos sin numpy compatible (ej: container SageMaker sklearn:1.2-1)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -107,6 +109,8 @@ def compute_holt_winters(series: pd.Series) -> float:
     Raises:
         ValueError: si series tiene menos de 3 observaciones.
     """
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing  # lazy import
+
     if len(series) < 3:
         raise ValueError(
             f"compute_holt_winters: need at least 3 observations, got {len(series)}"

@@ -3,3 +3,8 @@ pytest>=7.0.0
 structlog>=21.0.0
 statsmodels>=0.14.0,<1.0.0
 pytest-cov>=4.0.0
+# API
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+httpx>=0.23.0
+sagemaker>=2.200.0
