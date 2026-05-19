@@ -1,0 +1,4 @@
+# Dependencias para el container SageMaker sklearn:1.2-1
+# pandas, numpy, scikit-learn ya vienen en el container base — no listar
+structlog>=21.0.0
+statsmodels>=0.14.0
