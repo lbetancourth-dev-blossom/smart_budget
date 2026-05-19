@@ -1,4 +1,7 @@
-# Dependencias para el container SageMaker sklearn:1.2-1
-# pandas, numpy, scikit-learn ya vienen en el container base — no listar
+# Dependencias para el container SageMaker sklearn:1.2-1 (Python 3.9)
+# numpy y pandas ya vienen en el container — pinear para evitar que pip los actualice
+# (un upgrade de numpy rompe los binarios .pyx de pandas precompilados en el container)
+numpy==1.23.5
+pandas==1.5.3
 structlog>=21.0.0
 statsmodels>=0.14.0
