@@ -15,7 +15,7 @@ Formato de request (application/json):
   {"idaccount": "EXT2", "defaultcategory": "Food & Dining", "period_id": "2026-05"}
 
 Formato de response (application/json):
-  {ver schema acordado en plan.md}
+  {ver schema acordado en plan.md — idéntico al endpoint FastAPI}
 """
 
 import json
@@ -41,6 +41,11 @@ _VALID_CATEGORIES = {
     "Travel & Trips",
 }
 
+_METHOD = "wma"
+_TREATMENT = "B"
+_LOOKBACK = 3
+_MIN_MONTHS_GATING = 2
+
 
 def model_fn(model_dir: str):
     """
@@ -53,7 +58,6 @@ def model_fn(model_dir: str):
         str path a model_dir (contiene los CSVs y el paquete smart_budget/).
     """
     base = Path(model_dir)
-    # Ensure the smart_budget package inside model_dir is importable
     if str(base) not in sys.path:
         sys.path.insert(0, str(base))
     return str(base)
@@ -107,7 +111,7 @@ def predict_fn(data: dict, model) -> dict:
         model: base_dir str retornado por model_fn.
 
     Returns:
-        dict con la sugerencia de presupuesto (schema acordado en plan.md).
+        dict con la sugerencia de presupuesto (schema idéntico al endpoint FastAPI).
 
     Raises:
         ValueError: si la cuenta no existe en los datos (Regla 1).
@@ -139,7 +143,7 @@ def predict_fn(data: dict, model) -> dict:
         return _null_response(idaccount, "", "", defaultcategory, period_id,
                                "No hay datos para esta cuenta y categoría")
 
-    gated = apply_gating(history, min_months=2)
+    gated = apply_gating(history, min_months=_MIN_MONTHS_GATING)
 
     # Regla 3b: datos insuficientes (gating < 2 meses) → null
     if gated.empty:
@@ -150,10 +154,10 @@ def predict_fn(data: dict, model) -> dict:
 
     results = compute_budget_suggestions(
         gated,
-        method="wma",
-        treatment="B",
+        method=_METHOD,
+        treatment=_TREATMENT,
         reference_date=reference_date,
-        lookback_months=3,
+        lookback_months=_LOOKBACK,
     )
 
     if not results:
@@ -174,9 +178,11 @@ def predict_fn(data: dict, model) -> dict:
         "months_analyzed": basis_raw.get("months_analyzed", 0),
         "months_with_positive_spend": basis_raw.get("months_with_positive_spend", 0),
         "period_range": basis_raw.get("period_range", ""),
-        "method": basis_raw.get("method", "wma"),
-        "treatment": basis_raw.get("treatment", "B"),
+        "method": basis_raw.get("method", _METHOD),
+        "treatment": basis_raw.get("treatment", _TREATMENT),
     }
+
+    amount_by_month = _build_amount_by_month(gated, reference_date, _LOOKBACK)
 
     return {
         "idaccount": r["idaccount"],
@@ -187,6 +193,7 @@ def predict_fn(data: dict, model) -> dict:
         "suggested_amount": round(r["suggested_amount"], 2),
         "confidence": r.get("confidence"),
         "basis": basis,
+        "amount_by_month": amount_by_month,
         "display_label": r.get("display_label", ""),
         "model_version": r.get("model_version", "fase0-v1"),
     }
@@ -228,176 +235,40 @@ def _null_response(
         "suggested_amount": None,
         "confidence": None,
         "basis": None,
+        "amount_by_month": None,
         "display_label": display_label,
         "model_version": "fase0-v1",
     }
 
 
-import json
-import sys
-from pathlib import Path
-
-
-def model_fn(model_dir: str):
+def _build_amount_by_month(
+    history,
+    reference_date: str,
+    lookback_months: int,
+) -> dict:
     """
-    Retorna base_dir con los CSVs bundleados en model.tar.gz.
+    Retorna los montos mensuales de la ventana usada para calcular la sugerencia.
+
+    El resultado es un dict ordenado cronológicamente, ej.:
+    {"2026-02": 45.00, "2026-03": 0.0, "2026-04": 101.50}
 
     Args:
-        model_dir: Directorio donde SageMaker descomprimió model.tar.gz.
+        history: DataFrame con columnas period_yyyymm, monthly_total.
+        reference_date: Último mes incluido en el historial (YYYY-MM).
+        lookback_months: Número de meses en la ventana.
 
     Returns:
-        str path a model_dir (contiene los CSVs y el paquete smart_budget/).
-    """
-    base = Path(model_dir)
-    # Ensure the smart_budget package inside model_dir is importable
-    if str(base) not in sys.path:
-        sys.path.insert(0, str(base))
-    return str(base)
-
-
-def input_fn(input_data: str, content_type: str) -> dict:
-    """
-    Deserializa el request JSON.
-
-    Args:
-        input_data: JSON string con idaccount, defaultcategory, period_id.
-        content_type: Debe ser "application/json".
-
-    Returns:
-        dict con claves: idaccount, defaultcategory, period_id.
-
-    Raises:
-        ValueError: si content_type no es application/json o JSON inválido.
-    """
-    if content_type != "application/json":
-        raise ValueError(
-            f"Unsupported content type: {content_type!r}. Expected 'application/json'."
-        )
-    try:
-        data = json.loads(input_data)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON payload: {exc}") from exc
-    return data
-
-
-def predict_fn(data: dict, model) -> dict:
-    """
-    Ejecuta load_history → apply_gating → compute_budget_suggestions.
-
-    Args:
-        data: dict con idaccount, defaultcategory, period_id.
-        model: base_dir str retornado por model_fn.
-
-    Returns:
-        dict con la sugerencia de presupuesto (schema acordado en plan.md).
+        dict período → monto redondeado a 2 decimales.
     """
     import pandas as pd
 
-    from smart_budget.aggregator import apply_gating
-    from smart_budget.loader import load_history, _synthetic_accounts
-    from smart_budget.model import compute_budget_suggestions
+    ref = pd.Period(reference_date, freq="M")
+    window_start = ref - (lookback_months - 1)
 
-    idaccount = data["idaccount"]
-    defaultcategory = data["defaultcategory"]
-    period_id = data["period_id"]
-
-    base_dir = Path(model)
-    reference_date = str(pd.Period(period_id, freq="M") - 1)
-
-    # Clear cache so each invocation loads fresh data from the bundled CSVs
-    _synthetic_accounts.cache_clear()
-
-    history = load_history(idaccount, defaultcategory, base_dir)
-
-    if history.empty:
-        return {
-            "idaccount": idaccount,
-            "idclient": "",
-            "idcompany": "",
-            "defaultcategory": defaultcategory,
-            "period_id": period_id,
-            "suggested_amount": None,
-            "confidence": None,
-            "basis": None,
-            "display_label": "No hay datos para esta cuenta y categoría",
-            "model_version": "fase0-v1",
-        }
-
-    gated = apply_gating(history, min_months=2)
-
-    if gated.empty:
-        idclient = str(history["idclient"].iloc[0])
-        idcompany = str(history["idcompany"].iloc[0])
-        return {
-            "idaccount": idaccount,
-            "idclient": idclient,
-            "idcompany": idcompany,
-            "defaultcategory": defaultcategory,
-            "period_id": period_id,
-            "suggested_amount": None,
-            "confidence": None,
-            "basis": None,
-            "display_label": "No hay suficiente historial para esta categoría",
-            "model_version": "fase0-v1",
-        }
-
-    results = compute_budget_suggestions(
-        gated,
-        method="wma",
-        treatment="B",
-        reference_date=reference_date,
-        lookback_months=3,
+    mask = (history["period_yyyymm"] >= str(window_start)) & (
+        history["period_yyyymm"] <= str(ref)
     )
+    window = history.loc[mask].set_index("period_yyyymm")["monthly_total"]
 
-    if not results:
-        idclient = str(history["idclient"].iloc[0])
-        idcompany = str(history["idcompany"].iloc[0])
-        return {
-            "idaccount": idaccount,
-            "idclient": idclient,
-            "idcompany": idcompany,
-            "defaultcategory": defaultcategory,
-            "period_id": period_id,
-            "suggested_amount": None,
-            "confidence": None,
-            "basis": None,
-            "display_label": "No hay suficiente historial para esta categoría",
-            "model_version": "fase0-v1",
-        }
-
-    r = results[0]
-    basis_raw = r.get("basis") or {}
-    basis = {
-        "months_analyzed": basis_raw.get("months_analyzed", 0),
-        "months_with_positive_spend": basis_raw.get("months_with_positive_spend", 0),
-        "period_range": basis_raw.get("period_range", ""),
-        "method": basis_raw.get("method", "wma"),
-        "treatment": basis_raw.get("treatment", "B"),
-    }
-
-    return {
-        "idaccount": r["idaccount"],
-        "idclient": r["idclient"],
-        "idcompany": r["idcompany"],
-        "defaultcategory": r["defaultcategory"],
-        "period_id": period_id,
-        "suggested_amount": r.get("suggested_amount"),
-        "confidence": r.get("confidence"),
-        "basis": basis,
-        "display_label": r.get("display_label", ""),
-        "model_version": r.get("model_version", "fase0-v1"),
-    }
-
-
-def output_fn(prediction: dict, accept: str) -> str:
-    """
-    Serializa la respuesta a JSON string.
-
-    Args:
-        prediction: dict retornado por predict_fn.
-        accept: Tipo de contenido solicitado (ej: "application/json").
-
-    Returns:
-        JSON string de la respuesta.
-    """
-    return json.dumps(prediction, default=str)
+    all_periods = [str(window_start + i) for i in range(lookback_months)]
+    return {p: round(float(window.get(p, 0.0)), 2) for p in all_periods}
