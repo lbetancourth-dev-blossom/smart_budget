@@ -347,16 +347,19 @@ El endpoint SageMaker aplica las mismas 3 reglas que el endpoint local FastAPI:
 > En SageMaker no hay códigos HTTP 404/422 como en FastAPI — los errores de validación
 > llegan como excepciones que SageMaker retorna como error 400 (`ModelError`).
 
-### ⚠️ Compatibilidad de versiones del SDK de SageMaker
+### ⚠️ Compatibilidad de imagen de SageMaker Studio
 
-| Versión | Funciona | Notas |
+> **Nota:** "3.8.5" se refiere a la **imagen de distribución de SageMaker Studio**
+> (`sagemaker-distribution:3.8.5`), no a la versión de la librería `sagemaker`.
+
+| Imagen (`sagemaker-distribution`) | Funciona | Notas |
 |---|---|---|
-| `3.8.5` | ✅ | Versión estable — `SKLearnModel`, `get_execution_role()` funcionan correctamente |
-| `4.0.x` | ❌ | Breaking change: requiere `sagemaker_core` como módulo Python; `get_execution_role` no importable en Studio |
-| `4.1.x` | ❌ | Mismo problema que 4.0 |
+| `3.8.5` | ✅ | `SKLearnModel`, `get_execution_role()` funcionan sin configuración adicional |
+| `4.0.x` | ⚠️ | `sagemaker_core` instalado vía conda pero no en el path de pip — requiere fix |
+| `4.1.x` | ⚠️ | Mismo comportamiento que 4.0 |
 
-Si el entorno de Studio tiene `sagemaker >= 4.0`, la primera celda del notebook instala `sagemaker==3.8.5` automáticamente.
-**Después de correr esa celda, reiniciar el kernel antes de continuar.**
+Si usas imagen `4.x`, la primera celda del notebook instala `sagemaker-core` vía pip
+para ponerlo en el path correcto del kernel. **Reiniciar el kernel después de correr esa celda.**
 
 ### Deploy completo
 
