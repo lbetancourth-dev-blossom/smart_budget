@@ -154,7 +154,7 @@ def test_compute_holt_winters_below_min_raises():
 def test_compute_holt_winters_clamps_negative():
     """If ExponentialSmoothing forecast is negative, result is clamped to 0.0."""
     from smart_budget.model import compute_holt_winters
-    with patch("smart_budget.model.ExponentialSmoothing") as mock_es:
+    with patch("statsmodels.tsa.holtwinters.ExponentialSmoothing") as mock_es:
         mock_fit = MagicMock()
         mock_fit.forecast.return_value = pd.Series([-5.0])
         mock_es.return_value.fit.return_value = mock_fit
