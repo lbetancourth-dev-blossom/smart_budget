@@ -38,12 +38,12 @@ aws sso login --profile blossom-dev
 ### Levantar el servidor
 
 ```bash
-# Desde la raíz del repo
-export SMART_BUDGET_DATA_DIR="data/dough"
-export PYTHONPATH="$(pwd)/src"    # si no tienes pip install -e .
-
-uvicorn src.main:app --reload --port 8000
+# Desde la raíz del repo — PYTHONPATH=src es obligatorio
+PYTHONPATH=src uvicorn src.main:app --reload --port 8000
 ```
+
+> **Nota:** `smart_budget` vive en `src/smart_budget/`. Sin `PYTHONPATH=src` uvicorn
+> no lo encuentra y lanza `ModuleNotFoundError: No module named 'smart_budget'`.
 
 El servidor queda disponible en `http://localhost:8000`.
 
