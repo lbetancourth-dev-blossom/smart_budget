@@ -277,3 +277,62 @@ def test_get_suggestion_insufficient_months_returns_null(tmp_path, monkeypatch):
     assert body["suggested_amount"] is None
     assert body["confidence"] is None
     assert body["basis"] is None
+
+
+# ---------------------------------------------------------------------------
+# TC-T2.9 — Regla 2: period_id con formato inválido → 422
+# ---------------------------------------------------------------------------
+
+def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
+    """
+    Regla 2 (period_id): Si el formato de period_id es inválido → Error 422.
+
+    Arrange: period_id con separador "/" en lugar de "-" (no es un PeriodId válido).
+    Act: GET /smart-budget/suggestion?period_id=2026/05
+    Assert: HTTP 422 (FastAPI enum validation rechaza el valor).
+    """
+    tc = _make_client(tmp_path, monkeypatch)
+
+    response = tc.get(
+        "/smart-budget/suggestion",
+        params={
+            "idaccount": "SYN001",
+            "defaultcategory": "Groceries",
+            "period_id": "2026/05",  # formato inválido — no está en PeriodId enum
+        },
+    )
+
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# TC-T2.10 — Regla 3: period_id válido pero sin datos en la ventana → 200 null
+# ---------------------------------------------------------------------------
+
+def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch):
+    """
+    Regla 3: period_id válido pero sin datos en la ventana histórica → 200 null.
+
+    Arrange: account_exists=True, load_history retorna DataFrame vacío
+             (simulando que no hay transacciones para ese período/categoría).
+    Act: GET /smart-budget/suggestion?period_id=2025-09 (período sin datos)
+    Assert: HTTP 200; suggested_amount=null; confidence=null; basis=null.
+    """
+    tc = _make_client(tmp_path, monkeypatch)
+
+    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
+         patch("src.api.router.account_exists", return_value=True):
+        response = tc.get(
+            "/smart-budget/suggestion",
+            params={
+                "idaccount": "SYN001",
+                "defaultcategory": "Groceries",
+                "period_id": "2025-09",  # período más antiguo del enum, sin datos
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suggested_amount"] is None
+    assert body["confidence"] is None
+    assert body["basis"] is None

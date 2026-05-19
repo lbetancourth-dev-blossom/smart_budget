@@ -14,13 +14,16 @@
 | `requirements.txt` | **MODIFY** | Agregar 4 deps: fastapi, uvicorn, httpx, sagemaker |
 | `src/api/__init__.py` | **CREATE** | Paquete vacío |
 | `src/api/router.py` | **CREATE** | Router + schemas Pydantic + lógica endpoint |
-| `src/api/inference.py` | **CREATE** | Script de inferencia SageMaker |
+| `src/sagemaker/inference.py` | **CREATE** | Script de inferencia SageMaker |
+| `src/sagemaker/__init__.py` | **CREATE** | Paquete vacío |
+| `src/sagemaker/requirements.txt` | **CREATE** | Pins de ABI para container: numpy==1.23.5, pandas==1.5.3, structlog |
 | `src/main.py` | **CREATE** | FastAPI app entry point |
 | `src/smart_budget/loader.py` | **CREATE** | Cargador unificado de datos |
 | `notebooks/smart_budget_sagemaker_endpoint.ipynb` | **CREATE** | Notebook deploy/test SageMaker |
 | `tests/unit/test_loader.py` | **CREATE** | Tests del cargador (7 contratos) |
 | `tests/unit/test_api.py` | **CREATE** | Tests de integración (8 contratos) |
-| `src/smart_budget/model.py` | **UNCHANGED** | Sin modificaciones |
+| `tests/unit/test_inference.py` | **CREATE** | Tests del script SageMaker (6 contratos) |
+| `src/smart_budget/model.py` | **MODIFY** | Lazy import de `ExponentialSmoothing` dentro de `compute_holt_winters()` para evitar conflicto ABI numpy en container sklearn:1.2-1 |
 | `src/smart_budget/filters.py` | **UNCHANGED** | Sin modificaciones |
 | `src/smart_budget/aggregator.py` | **UNCHANGED** | Sin modificaciones |
 | `conftest.py` | **UNCHANGED** | Sin modificaciones |
@@ -292,7 +295,7 @@ test_contracts:
 from __future__ import annotations
 
 import os
-import re
+from enum import Enum
 from pathlib import Path
 
 import pandas as pd
@@ -301,10 +304,39 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from smart_budget.aggregator import apply_gating
-from smart_budget.loader import load_history
+from smart_budget.loader import load_history, account_exists
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
+
+# ---------------------------------------------------------------------------
+# Enums para Swagger UI — dropdowns en "Try it out"
+# Nota: se usan Enums (no str + regex) para mejorar UX del Swagger en dev.
+# En producción (alpha/beta) se puede ampliar el catálogo de valores.
+# ---------------------------------------------------------------------------
+
+class IdAccount(str, Enum):
+    EXT2 = "EXT2"
+    EXT22 = "EXT22"
+    INT31880 = "INT31880"
+    SYN001 = "SYN001"
+    # ... (valores del dataset sintético/dev)
+
+
+class Category(str, Enum):
+    auto_transport = "Auto & Transport"
+    bills_utilities = "Bills & Utilities"
+    food_dining = "Food & Dining"
+    groceries = "Groceries"
+    # ... (15 categorías de defaultcategory)
+
+
+class PeriodId(str, Enum):
+    p_2025_09 = "2025-09"
+    p_2026_05 = "2026-05"
+    p_2026_06 = "2026-06"
+    # ... (10 meses en ventana dev)
+
 
 # ---------------------------------------------------------------------------
 # Schemas de respuesta
@@ -327,6 +359,7 @@ class SuggestionResponse(BaseModel):
     suggested_amount: float | None
     confidence: str | None
     basis: BasisDetail | None
+    amount_by_month: dict[str, float | None] | None  # montos mensuales de la ventana
     display_label: str
     model_version: str
 
@@ -337,8 +370,6 @@ class SuggestionResponse(BaseModel):
 
 router = APIRouter(prefix="/smart-budget", tags=["Smart Budget"])
 
-_PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
-
 _METHOD = "wma"
 _TREATMENT = "B"
 _LOOKBACK = 3
@@ -347,9 +378,9 @@ _MIN_MONTHS_GATING = 2
 
 @router.get("/suggestion", response_model=SuggestionResponse)
 def get_suggestion(
-    idaccount: str = Query(..., description="ID de la cuenta del miembro"),
-    defaultcategory: str = Query(..., description="Categoría (ej: GROCERIES)"),
-    period_id: str = Query(..., description="Mes a presupuestar (YYYY-MM)"),
+    idaccount: IdAccount = Query(..., description="ID de la cuenta del miembro"),
+    defaultcategory: Category = Query(..., description="Categoría a presupuestar"),
+    period_id: PeriodId = Query(..., description="Mes a presupuestar (YYYY-MM)"),
 ) -> SuggestionResponse:
     """
     Calcula y retorna una sugerencia de presupuesto mensual on-demand.
@@ -357,9 +388,6 @@ def get_suggestion(
     El historial considerado es los 3 meses ANTERIORES a period_id (lookback=3,
     reference_date = period_id − 1 mes). Method=WMA, Treatment=B (DATA-1138).
     """
-    # Paso 1: validar formato period_id
-    if not _PERIOD_RE.match(period_id):
-        raise HTTPException(
             status_code=422,
             detail=f"period_id debe tener formato YYYY-MM, recibido: {period_id!r}",
         )
@@ -616,7 +644,7 @@ Criterio: todos pasan (0 regresiones en código existente).
 [ ] T2 — src/api/router.py + src/main.py creados, 8/8 test contracts pasan
 [ ] T3 — tests/unit/test_loader.py + test_api.py creados
 [ ] T4 — V1 a V8 verificados (FastAPI local)
-[ ] T5 — src/api/inference.py + notebook SageMaker creados
+[ ] T5 — src/sagemaker/inference.py + notebook SageMaker creados
 
 Coverage nuevos módulos: ____%
 Tests totales: ____ passed / ____ failed
@@ -630,13 +658,13 @@ Tests totales: ____ passed / ____ failed
 
 | Archivo | Operación |
 |---|---|
-| `src/api/inference.py` | **CREATE** — entry_point SageMaker |
+| `src/sagemaker/inference.py` | **CREATE** — entry_point SageMaker |
 | `notebooks/smart_budget_sagemaker_endpoint.ipynb` | **CREATE** — notebook deploy/test |
 
-### `src/api/inference.py` — contrato SageMaker
+### `src/sagemaker/inference.py` — contrato SageMaker
 
 ```python
-"""src/api/inference.py — Script de inferencia para endpoint SageMaker (DATA-1140).
+"""src/sagemaker/inference.py — Script de inferencia para endpoint SageMaker (DATA-1140).
 
 Contrato SageMaker SKLearnModel:
   model_fn(model_dir) → carga artefactos; retorna base_dir como "model"
@@ -679,7 +707,7 @@ El notebook debe seguir el patrón de `safe-txn-enpoint (2).ipynb` (Descargas/):
 1. **Celda markdown**: título + descripción del endpoint
 2. **Celda code**: imports (boto3, sagemaker, tarfile, os, pathlib)
 3. **Celda markdown**: `### Step 1: Preparar model.tar.gz`
-4. **Celda code**: crea directorio temp, copia `src/smart_budget/` + `data/dough/` (CSVs) + `src/api/inference.py`, crea tarball
+4. **Celda code**: crea directorio temp, copia `src/smart_budget/` + `data/dough/` (CSVs) + `src/sagemaker/inference.py`, crea tarball
    ```python
    # Estructura: inference.py + smart_budget/ + data/
    # Output: notebooks/model_artifacts/model.tar.gz

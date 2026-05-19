@@ -26,10 +26,10 @@
 | Task | RED commit | GREEN commit | Cycles | Notes |
 |---|---|---|---|---|
 | T0 | skipped (glue-only) | `f1e2b53` | — | requirements.txt update |
-| T1 | `f9e8896` | `1253267` | 1 | All 7 tests green on first impl |
-| T2 | `6a2fedc` | `0aad856` | 2 | Iteration 2: Python 3.9 `float\|None` → `Optional[float]` fix |
-| T5 | `4fcd8a0` | `f916572` | 1 | All 6 tests green on first impl |
-| refactor | — | `179c4a9` | — | `black` formatting applied |
+| T1 | `ab2e901` | `3d3eabe` | 1 | All 7 tests green on first impl |
+| T2 | `d891eba` | `1005bcc` | 2 | Iteration 2: Python 3.9 `float\|None` → `Optional[float]` fix |
+| T5 | `1733d98` | `314ebd0` | 1 | All 6 tests green on first impl |
+| refactor | — | `3893a4c` | — | Lazy import statsmodels en model.py |
 
 ---
 
@@ -45,7 +45,7 @@ pytest tests/ -v --cov=src/smart_budget --cov=src/api --cov-report=term-missing
 Name                             Stmts   Miss  Cover   Missing
 --------------------------------------------------------------
 src/api/__init__.py                  0      0   100%
-src/api/inference.py                46      5    89%   53, 93, 133-135
+src/sagemaker/inference.py                46      5    89%   53, 93, 133-135
 src/api/router.py                   71      5    93%   97-99, 130-131
 src/smart_budget/__init__.py         0      0   100%
 src/smart_budget/aggregator.py      39      1    97%   43
@@ -64,8 +64,8 @@ TOTAL                              349     16    95%
 ## V2 — Linting
 
 ```bash
-ruff check src/smart_budget/loader.py src/api/router.py src/main.py src/api/inference.py
-black --check src/smart_budget/loader.py src/api/router.py src/main.py src/api/inference.py
+ruff check src/smart_budget/loader.py src/api/router.py src/main.py src/sagemaker/inference.py
+black --check src/smart_budget/loader.py src/api/router.py src/main.py src/sagemaker/inference.py
 ```
 
 **Result:** ✅ `All checks passed!` (ruff); `All done!` (black, after reformatting)
@@ -182,7 +182,7 @@ Same failure mode — no regression introduced.
 ## V9 — inference.py Importable
 
 ```bash
-python3 -c "from src.api.inference import model_fn, input_fn, predict_fn, output_fn; print('ok')"
+python3 -c "from src.sagemaker.inference import model_fn, input_fn, predict_fn, output_fn; print('ok')"
 ```
 
 **Result:** ✅ `ok`
@@ -220,7 +220,7 @@ python3 -c "from src.api.inference import model_fn, input_fn, predict_fn, output
 | `requirements.txt` | MODIFY | +5 |
 | `src/api/__init__.py` | CREATE | 2 |
 | `src/api/router.py` | CREATE | 168 |
-| `src/api/inference.py` | CREATE | 172 |
+| `src/sagemaker/inference.py` | CREATE | 172 |
 | `src/main.py` | CREATE | 13 |
 | `src/smart_budget/loader.py` | CREATE | 212 |
 | `tests/unit/test_loader.py` | CREATE | 238 |
@@ -245,7 +245,7 @@ python3 -c "from src.api.inference import model_fn, input_fn, predict_fn, output
 |---|---|---|---|
 | `src/api/__init__.py` | 0 | 0 | 100% |
 | `src/api/router.py` | 71 | 5 | 93% |
-| `src/api/inference.py` | 46 | 5 | 89% |
+| `src/sagemaker/inference.py` | 46 | 5 | 89% |
 | `src/smart_budget/loader.py` | 64 | 2 | 97% |
 
 All exceed the 80% threshold from the spec.
