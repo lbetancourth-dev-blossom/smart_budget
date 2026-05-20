@@ -20,35 +20,35 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 
 ---
 
-## Método seleccionado: Median Treatment B · lb=6
+## Método seleccionado: WMA Treatment B · lb=3
 
-`DATA-1138` evaluó 4 métodos × 4 lookbacks (16 configuraciones) con split temporal: train Jun2025–Mar2026, holdout Apr2026 (73 buckets reales). Métrica compuesta: **CRWS** (Composite Relative Weighted Score).
+`DATA-1138` evaluó 4 métodos × 4 lookbacks (16 configuraciones) con split temporal: train Jun2025–Mar2026, holdout Apr2026 (73 buckets reales). Métrica de selección: **CRWS** (Composite Relative Weighted Score — mayor es mejor).
 
-### Top configuraciones por CRWS
+### Ranking por CRWS (top 9)
 
-| Método | lb | MAE | Cobertura | null% | MAE estacional | MAE regular | CRWS |
+| # | Método | lb | CRWS | MAE | MAE regular | MAE estacional | null% |
 |---|---|---|---|---|---|---|---|
-| WMA-B | 3 | $48.63 | 86.3% | 7.35% | $176.62 | $39.95 | 0.5372 |
-| EWMA-B | 3 | $50.53 | 86.3% | 7.35% | $176.81 | $41.97 | 0.5174 |
-| Median-B | 3 | $52.70 | 86.3% | 7.35% | $176.81 | $44.28 | 0.4947 |
-| EWMA-B | 6 | $80.92 | 91.8% | 1.47% | $395.66 | $44.20 | 0.3763 |
-| WMA-B | 6 | $93.47 | 91.8% | 1.47% | $428.32 | $54.41 | 0.3053 |
-| **Median-B** ✅ | **6** | **$91.31** | **91.8%** | **1.47%** | **$385.04** | **$57.04** | **0.2870** |
-| Holt-Winters-B | 6 | $63.01 | 83.6% | 10.29% | $280.96 | $51.73 | 0.2857 |
+| **1** | **WMA-B** ✅ | **3** | **0.5372** | **$48.63** | **$39.95** | $176.62 (4 buckets) | 7.35% |
+| 2 | EWMA-B | 3 | 0.5174 | $50.53 | $41.97 | $176.81 | 7.35% |
+| 3 | Median-B | 3 | 0.4947 | $52.70 | $44.28 | $176.81 | 7.35% |
+| 4 | EWMA-B | 6 | 0.3763 | $80.92 | $44.20 | $395.66 | 1.47% |
+| 5 | EWMA-B | 9 | 0.3091 | $113.87 | $44.83 | $631.64 | 0.00% |
+| 6 | WMA-B | 6 | 0.3053 | $93.47 | $54.41 | $428.32 | 1.47% |
+| 7 | Median-B | 6 | 0.2870 | $91.31 | $57.04 | $385.04 | 1.47% |
+| 8 | Holt-Winters-B | 6 | 0.2857 | $63.01 | $51.73 | $280.96 | 10.29% |
+| 9 | EWMA-B | 12 | 0.2679 | $100.75 | $44.79 | $520.47 | 0.00% |
 
-> **Configuraciones lb=9/12** producen MAE > $100 y CRWS < 0.25 — descartadas.
+### Método seleccionado: WMA-B lb=3
 
-### Método seleccionado para Fase 0
+- **Mejor CRWS (0.5372):** +3.8% sobre EWMA lb=3, +87% sobre Median lb=6
+- **Menor MAE ($48.63):** 47% mejor que Median lb=6 ($91.31)
+- **Mejor MAE regular ($39.95):** 30% más preciso en categorías de gasto frecuente (Groceries, Gas, Food & Dining)
+- **null_rate 7.35% ya penalizado en CRWS** — no es un disqualifier externo
 
-**Median + Treatment B + lookback=6** como default único:
+> **Limitación conocida:** con lb=3 solo se evalúan 4/8 buckets estacionales. Fase 1 implementará selección adaptativa: WMA lb=3 para categorías regulares, Median lb=6 para estacionales (Travel, Gifts, Education).
 
-- **Mejor MAE estacional** entre lb≥6: $385 vs $428 (WMA) y $395 (EWMA) — categorías de alta varianza (Travel, Gifts, Education) son el caso más difícil.
-- **null_rate 1.47%** (1 bucket de 68) — prácticamente cobertura total.
-- **Robustez ante outliers**: la mediana no se arrastra por meses de gasto extraordinario.
-- lb=3 tiene mejor CRWS (0.53) pero con historial corto (7.35% nulls) — válido para usuarios nuevos, pero menos representativo con dataset completo.
-
-> **Treatment B:** excluye meses con $0 del cálculo — usa solo meses con gasto real.
-> **lookback=6:** usa los últimos 6 meses calendario completos antes del mes presupuestado.
+> **Treatment B:** excluye meses con $0 — calcula solo sobre meses con gasto real.
+> **lookback=3:** usa los últimos 3 meses calendario completos antes del mes presupuestado.
 
 ---
 

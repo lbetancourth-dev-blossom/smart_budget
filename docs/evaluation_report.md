@@ -13,7 +13,7 @@ El objetivo de DATA-1138 es determinar, mediante evaluación formal con holdout 
 
 El análisis exploratorio previo (DATA-1137, `docs/method_comparison.md`) eligió WMA-B lb=6 sin medir el error de predicción contra actuals reales. Este reporte corrige esa limitación: aplica un split temporal estándar, mide MAE contra actuals conocidas, y selecciona el método con base en evidencia empírica.
 
-**Resultado:** Median-B lb=6 reemplaza a WMA-B lb=6 como método recomendado para Fase 0, con un MAE 2.3 % inferior (91.31 vs 93.47). El CRWS señala a EWMA lb=6 como alternativa superior en categorías regulares (mae_regular=44.20 vs 57.04); la selección de Median lb=6 se mantiene por su mejor desempeño en categorías estacionales (mae_seasonal=385 vs 396).
+**Resultado:** WMA-B lb=3 es el método seleccionado para Fase 0 (CRWS=0.5372, MAE=$48.63 — mejor de la grilla). Supera a Median-B lb=6 en un 87 % en CRWS y 47 % en MAE. Ver §6 para la justificación completa y el ranking.
 
 ---
 
