@@ -31,7 +31,7 @@ python3 scripts/extract_datalake_to_csv.py --source DOUGH --layer silver
 
 ### Fase 2 — Construcción de fact_transactions (scripts/build_fact_transactions.py)
 
-Construye la tabla central unificando OLB (SUB + LOAN) y Dough (EXT).
+Construye la tabla central unificando OLB (SUB + LOAN) y Dough (EXT). Las transacciones `LOAN` son excluidas del modelo presupuestal en la etapa de filtrado (Rule 4 en `filters.py`).
 
 ```bash
 # Modo DB (recomendado — datos idénticos al equipo DE):

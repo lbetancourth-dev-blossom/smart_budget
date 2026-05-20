@@ -94,7 +94,7 @@ idtransaction, idclient, idcompany, idaccount, idcategory, defaultcategory,
 date, amount, incomeexpenditure, status, deletedat
 ```
 
-- `idtransaction`: prefijo `SUB`, `LOAN`, o `EXT` aleatorio
+- `idtransaction`: prefijo `SUB` o `EXT` aleatorio (`LOAN` excluido del modelo)
 - `idclient/idcompany`: valores fijos `CLIENT001` / `COMPANY001` (single tenant para dev)
 - `idaccount`: `MEMBER_001`, `MEMBER_002`, ...
 - `amount`: float positivo (los gastos son positivos en el schema)

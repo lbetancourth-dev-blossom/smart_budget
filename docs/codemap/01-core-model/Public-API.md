@@ -15,15 +15,15 @@ Todas las funciones públicas exportadas por `src/smart_budget/`. Ordenadas por 
 
 ### `filter_transactions(df: DataFrame) → DataFrame`
 
-Aplica las 5 reglas de filtrado sobre `fact_transactions`. Retorna DataFrame filtrado con índice reseteado.
+Aplica las 6 reglas de filtrado sobre `fact_transactions`. Retorna DataFrame filtrado con índice reseteado.
 
 **Reglas aplicadas (en orden):**
 1. `deletedat IS NULL` — excluye soft-deleted
-2. `incomeexpenditure == 'expenditure'` — solo gastos
+2. `incomeexpenditure == 'expenditure'` — solo gastos (excluye créditos e ingresos)
 3. `defaultcategory NOT IN (None, 'UNCATEGORIZED', 'INCOME', 'MONEY_SENT')` — categorías válidas
-4. OLB (`SUB`/`LOAN` prefix): excluye si `status IN ('PENDING', 'HOLD')`
-5. EXT (Dough, Plaid/Finicity): excluye si `status != 'POSTED'`
-6. Prefijos desconocidos: pasan sin filtro de status (no data loss silencioso)
+4. `idtransaction NOT LIKE 'LOAN%'` — excluye pagos de préstamos (no son gasto discrecional)
+5. OLB (`SUB` prefix): excluye si `status IN ('PENDING', 'HOLD')`
+6. EXT (Dough, Plaid/Finicity): excluye si `status != 'POSTED'`
 
 **Input mínimo:** DataFrame con columnas `deletedat`, `incomeexpenditure`, `defaultcategory`, `idtransaction`, `status`, `amount`.
 

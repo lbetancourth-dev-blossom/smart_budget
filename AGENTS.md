@@ -12,7 +12,7 @@
 
 ## Critical files
 
-- `src/smart_budget/filters.py` — 5 reglas de filtrado **nunca bypassear**
+- `src/smart_budget/filters.py` — 6 reglas de filtrado **nunca bypassear**
 - `src/smart_budget/aggregator.py` — aggregate_monthly, zero_fill, apply_gating
 - `src/smart_budget/model.py` — 4 métodos + compute_budget_suggestions() — punto de escritura del output
 - `scripts/run_methods.py` — CLI principal del pipeline

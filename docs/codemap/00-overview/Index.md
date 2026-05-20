@@ -31,7 +31,7 @@ Catálogo completo de todas las páginas en `docs/codemap/`. Para el punto de en
 |---|---|
 | [[01-core-model/README\|Core Model README]] | Módulo central: filtros, agregación y 4 métodos de sugerencia |
 | [[01-core-model/Public-API\|Core Model · Public API]] | Funciones públicas exportadas por `src/smart_budget/` |
-| [[01-core-model/Filters\|Core Model · Filters]] | `filter_transactions()` — 5 reglas de filtrado |
+| [[01-core-model/Filters\|Core Model · Filters]] | `filter_transactions()` — 6 reglas de filtrado |
 | [[01-core-model/Aggregator\|Core Model · Aggregator]] | `aggregate_monthly()`, `zero_fill()`, `apply_gating()` |
 | [[01-core-model/Model\|Core Model · Model]] | `compute_budget_suggestions()` y 4 métodos (WMA, EWMA, Median, HW) |
 | [[02-scripts/README\|Scripts README]] | ETL scripts + CLI runners + evaluación holdout |
