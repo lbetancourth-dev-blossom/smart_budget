@@ -11,7 +11,7 @@ Pipeline de sugerencias de presupuesto mensual por categoría. Transforma transa
 ```
 src/smart_budget/
 ├── __init__.py         → exports públicos del módulo
-├── filters.py          → 5 reglas de filtrado (never_bypass)
+├── filters.py          → 6 reglas de filtrado (never_bypass)
 ├── aggregator.py       → aggregate_monthly, zero_fill, apply_gating
 └── model.py            → 4 métodos + compute_budget_suggestions()
 ```

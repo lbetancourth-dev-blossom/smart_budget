@@ -69,7 +69,7 @@ sequenceDiagram
 model.tar.gz
 ├── data/
 │   ├── smart_budget_synthetic.csv   → dataset sintético (EXT1, EXT2, SYN*)
-│   ├── test_internal.csv            → cuentas OLB (SUB*, LOAN*)
+│   ├── test_internal.csv            → cuentas OLB (SUB*) — LOAN* excluido por Rule 4
 │   └── test_external.csv            → cuentas externas (EXT*)
 └── smart_budget/                    → paquete Python empaquetado
     ├── __init__.py

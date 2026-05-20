@@ -21,7 +21,7 @@ Módulo central de Smart Budget. Contiene toda la lógica de negocio: filtrado d
 ```
 src/smart_budget/
 ├── __init__.py       → módulo vacío (importabilidad)
-├── filters.py        → filter_transactions() — 5 reglas de filtrado
+├── filters.py        → filter_transactions() — 6 reglas de filtrado
 ├── aggregator.py     → aggregate_monthly(), zero_fill(), apply_gating(),
 │                       prepare_smart_budget_data()
 └── model.py          → apply_treatment(), compute_wma(), compute_ewma(),
@@ -37,7 +37,7 @@ Las funciones de entrada del pipeline son:
 
 | Función | Archivo | Descripción |
 |---|---|---|
-| `filter_transactions(df)` | `filters.py` | Aplica 5 reglas de filtrado sobre `fact_transactions` |
+| `filter_transactions(df)` | `filters.py` | Aplica 6 reglas de filtrado sobre `fact_transactions` |
 | `prepare_smart_budget_data(df, min_months)` | `aggregator.py` | Orquesta filter → aggregate → zero_fill → gating |
 | `compute_budget_suggestions(df, method, treatment, reference_date, ...)` | `model.py` | Pipeline principal: 1 dict por bucket con sugerencia o null |
 
@@ -77,7 +77,7 @@ flowchart TD
 
 ## Reglas de negocio críticas
 
-Ver [[01-core-model/Filters]] para las 5 reglas de filtrado.
+Ver [[01-core-model/Filters]] para las 6 reglas de filtrado.
 
 - **Gating**: bucket con < `min_months` meses de datos positivos → null suggestion (no sugerir).
 - **Snapshot freeze**: una sugerencia emitida nunca se modifica retroactivamente.
@@ -87,7 +87,7 @@ Ver [[01-core-model/Filters]] para las 5 reglas de filtrado.
 
 ## Sub-features
 
-- [[01-core-model/Filters]] — reglas de filtrado (5 reglas, Posted, Expenditure, etc.)
+- [[01-core-model/Filters]] — reglas de filtrado (6 reglas, Posted, Expenditure, LOAN exclusion, etc.)
 - [[01-core-model/Aggregator]] — agregación mensual, zero-fill, gating
 - [[01-core-model/Model]] — métodos WMA / EWMA / Median / Holt-Winters + pipeline
 

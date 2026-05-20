@@ -118,6 +118,12 @@ def build_sub_transactions(olb: Path) -> pd.DataFrame:
         df["_otc_id"] = None
 
     # Construir columnas canonicas
+    # Convención de signo OLB: débito (gasto) = negativo, crédito (ingreso) = positivo.
+    # Se normaliza a positivo para alinear con la convención de EXT (Plaid/Finicity).
+    sub_amount_raw = pd.to_numeric(df["amount"], errors="coerce")
+    sub_income_exp = sub_amount_raw.apply(lambda a: "expenditure" if float(a or 0) < 0 else "income")
+    sub_amount = sub_amount_raw.abs()
+
     result = pd.DataFrame({
         "idTransaction"        : "SUB" + df["id"].astype(str),
         "idClient"             : 1,
@@ -125,12 +131,12 @@ def build_sub_transactions(olb: Path) -> pd.DataFrame:
         "idAccount"            : "INT" + df["idolbaccountnumber"].astype(str),
         "idSubAccount"         : "SUB" + df["idsubaccount"].astype(str),
         "idCategory"           : df.get("_otc_id"),
-        "amount"               : pd.to_numeric(df["amount"], errors="coerce"),
+        "amount"               : sub_amount,
         "currency"             : "USD",
         "originalAmount"       : None,
         "timestamp"            : pd.to_datetime(df["date"], errors="coerce"),
         "date"                 : pd.to_datetime(df["date"], errors="coerce").dt.date,
-        "incomeExpenditure"    : df["amount"].apply(lambda a: "expenditure" if float(a or 0) < 0 else "income"),
+        "incomeExpenditure"    : sub_income_exp,
         "status"               : df["status"],
         "description"          : df.get("description"),
         "balance"              : pd.to_numeric(df.get("balance"), errors="coerce"),
@@ -221,6 +227,15 @@ def build_loan_transactions(olb: Path) -> pd.DataFrame:
         print("  ⚠️  principalAmount no encontrado — usando amount si existe")
         amount_col = "amount" if "amount" in df.columns else None
 
+    # Convención de signo OLB: débito (gasto) = negativo, crédito (ingreso) = positivo.
+    # Se normaliza a positivo para alinear con la convención de EXT (Plaid/Finicity).
+    loan_amount_raw = pd.to_numeric(df[amount_col], errors="coerce") if amount_col else None
+    loan_income_exp = (
+        loan_amount_raw.apply(lambda a: "expenditure" if float(a or 0) < 0 else "income")
+        if loan_amount_raw is not None else None
+    )
+    loan_amount = loan_amount_raw.abs() if loan_amount_raw is not None else None
+
     result = pd.DataFrame({
         "idTransaction"        : "LOAN" + df["id"].astype(str),
         "idClient"             : 1,
@@ -228,14 +243,12 @@ def build_loan_transactions(olb: Path) -> pd.DataFrame:
         "idAccount"            : "INT" + df["idolbaccountnumber"].astype(str),
         "idSubAccount"         : "LOAN" + df["idolbloan"].astype(str),
         "idCategory"           : df.get("_otc_id"),
-        "amount"               : pd.to_numeric(df[amount_col], errors="coerce") if amount_col else None,
+        "amount"               : loan_amount,
         "currency"             : "USD",
         "originalAmount"       : None,
         "timestamp"            : pd.to_datetime(df["date"], errors="coerce"),
         "date"                 : pd.to_datetime(df["date"], errors="coerce").dt.date,
-        "incomeExpenditure"    : df[amount_col].apply(
-                                     lambda a: "expenditure" if float(a or 0) < 0 else "income"
-                                 ) if amount_col else None,
+        "incomeExpenditure"    : loan_income_exp,
         "status"               : df["status"],
         "description"          : df.get("description"),
         "balance"              : pd.to_numeric(df.get("balance"), errors="coerce"),

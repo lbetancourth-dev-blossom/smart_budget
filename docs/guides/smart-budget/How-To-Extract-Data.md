@@ -152,7 +152,7 @@ data/dough/fact_transactions_sample.csv         ← muestra aleatoria 50k filas
 
 ## Paso 3 — Filtrar y agregar (`smart_budget_prep.csv`)
 
-El script `scripts/run_smart_budget_prep.py` aplica las **5 reglas de filtrado**
+El script `scripts/run_smart_budget_prep.py` aplica las **6 reglas de filtrado**
 obligatorias y agrega las transacciones por mes.
 
 ```bash
@@ -212,15 +212,30 @@ df = df[~df["defaultcategory"].isin(EXCLUIDAS)]
 | `null` / `None` | ❌ Excluir | Sin categoría |
 | Cualquier otra categoría válida | ✅ Incluir | — |
 
-### Regla 4 — Estado de transacciones OLB (`SUB*` / `LOAN*`)
+### Regla 4 — Exclusión de transacciones LOAN
 
 ```python
-is_olb = df["idtransaction"].str.startswith(("SUB", "LOAN"))
-olb_invalid = is_olb & df["status"].notna() & df["status"].str.upper().isin(["PENDING", "HOLD"])
-df = df[~olb_invalid]
+df = df[~df["idtransaction"].str.startswith("LOAN")]
 ```
 
-Aplica solo cuando `idtransaction` empieza con `SUB` o `LOAN`.
+| Prefijo | Resultado | Razón |
+|---|---|---|
+| `LOAN*` | ❌ Excluir | Pagos de préstamos — obligación fija, no gasto discrecional por categoría |
+| `SUB*` | ✅ Continúa → Regla 5 | — |
+| `EXT*` | ✅ Continúa → Regla 6 | — |
+
+> Aunque los LOAN existen en `fact_transactions`, representan cuotas de préstamos
+> (automotriz, hipotecario, personal). No son gasto categorizable para el presupuesto.
+
+### Regla 5 — Estado de transacciones OLB (`SUB*`)
+
+```python
+is_sub = df["idtransaction"].str.startswith("SUB")
+sub_invalid = is_sub & df["status"].notna() & df["status"].str.upper().isin(["PENDING", "HOLD"])
+df = df[~sub_invalid]
+```
+
+Aplica solo cuando `idtransaction` empieza con `SUB`.
 
 | `status` | Resultado |
 |---|---|
@@ -229,7 +244,7 @@ Aplica solo cuando `idtransaction` empieza con `SUB` o `LOAN`.
 | `HOLD` | ❌ Excluir |
 | Cualquier otro valor | ✅ Incluir |
 
-### Regla 5 — Estado de transacciones externas Dough (`EXT*`)
+### Regla 6 — Estado de transacciones externas Dough (`EXT*`)
 
 ```python
 is_ext = df["idtransaction"].str.startswith("EXT")
@@ -247,7 +262,7 @@ Aplica solo cuando `idtransaction` empieza con `EXT` (Plaid / Finicity).
 | `CANCELLED` | ❌ Excluir |
 | Cualquier otro valor | ❌ Excluir |
 
-> **Fuentes sin prefijo conocido** (ni SUB, LOAN, ni EXT): pasan sin filtro de status
+> **Fuentes sin prefijo conocido** (ni SUB, ni EXT): pasan sin filtro de status
 > para evitar pérdida silenciosa de datos. Se emite warning en log.
 
 ---
@@ -372,7 +387,7 @@ PYTHONPATH=src python3 scripts/run_methods.py \
 | `fact_transactions.csv` vacío | Tablas OLB o DOUGH no descargadas | Verificar que `data/olb/dev/silver/` y `data/dough/dev/silver/` tienen CSVs |
 | `ModuleNotFoundError: smart_budget` | `PYTHONPATH` no configurado | Ejecutar con `PYTHONPATH=src` al inicio del comando |
 | `monthly_total` negativo en output | Bug en clamp | No debería ocurrir — reportar como bug en `aggregator.py` |
-| Pocas filas después del filtrado | Reglas 4/5 muy restrictivas | Verificar prefijos de `idtransaction` con `df['idtransaction'].str[:3].value_counts()` |
+| Pocas filas después del filtrado | Reglas 4/5/6 muy restrictivas | Verificar prefijos de `idtransaction` con `df['idtransaction'].str[:3].value_counts()` |
 
 ---
 
@@ -380,7 +395,7 @@ PYTHONPATH=src python3 scripts/run_methods.py \
 
 - [[How-To-Run-Pipeline]] — pipeline completo de sugerencias (paso siguiente)
 - [[How-To-Use-Endpoint]] — servir sugerencias via API local
-- `src/smart_budget/filters.py` — implementación de las 5 reglas
+- `src/smart_budget/filters.py` — implementación de las 6 reglas
 - `src/smart_budget/aggregator.py` — agregación mensual, zero-fill, gating
 - `scripts/extract_datalake_to_csv.py` — extracción S3 → CSV
 - `scripts/build_fact_transactions.py` — construcción de fact_transactions

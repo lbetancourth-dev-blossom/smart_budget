@@ -47,9 +47,9 @@ Definiciones de todos los términos de dominio usados en el código y la documen
 | **silver** | Capa del datalake con datos limpios. Fuente de Smart Budget. |
 | **bronze** | Capa raw CDC desde DMS. Nunca leer directamente. |
 | **gold** | Capa de output DS-ML. Vacía en Fase 0 — destino de `smartBudgetSuggestion`. |
-| **OLB** | Online Banking (sistema interno Blossom). Transacciones con prefijo `SUB` o `LOAN`. |
+| **OLB** | Online Banking (sistema interno Blossom). Transacciones con prefijo `SUB`. Las transacciones `LOAN` se construyen en `fact_transactions` pero se excluyen del modelo presupuestal (Rule 4). |
 | **EXT** | Transacciones externas via Plaid o Finicity (agregador Dough). Prefijo `EXT`. |
-| **idtransaction** | ID único de transacción. Prefijo determina origen: `SUB` (OLB SubAccount), `LOAN` (OLB Loan), `EXT` (Dough externo). |
+| **idtransaction** | ID único de transacción. Prefijo determina origen: `SUB` (OLB SubAccount, incluido en modelo), `LOAN` (OLB Loan, **excluido por Rule 4**), `EXT` (Dough externo). |
 | **defaultcategory** | Categoría estándar de Blossom (string, ej: `"GROCERIES"`). Viene del catálogo `defaultcategory` o de Ntropy (RICH). |
 | **RICH** | Enriquecimiento de Ntropy. Asigna `defaultcategory` a transacciones externas. No todas las CUs tienen RICH activo. |
 | **MONEY_SENT** | Categoría legacy OLB equivalente a Internal Transfers. Excluida del modelo. |
