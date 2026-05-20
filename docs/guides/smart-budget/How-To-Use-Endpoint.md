@@ -20,16 +20,18 @@ Guía para levantar el endpoint local (FastAPI) y opcionalmente desplegarlo en S
 ## Prerequisitos
 
 ```bash
-# Desde la raíz del repo (o worktree)
-pip install -r requirements.txt
-pip install -e .
+# Desde la raíz del repo
+cd /ruta/a/smart_budget
 
-# Si no hay pyproject.toml, usar PYTHONPATH en su lugar:
-export PYTHONPATH="$(pwd)/src"
+# Instalar dependencias en el virtualenv del repo
+.venv/bin/pip install -r requirements.txt
 
 # Credenciales AWS (solo para extracción S3 o SageMaker)
 aws sso login --profile blossom-dev
 ```
+
+> **Nota:** este repo no tiene `pyproject.toml` — `pip install -e .` fallará.
+> El módulo `smart_budget` se expone via `PYTHONPATH=src` al levantar el servidor.
 
 ---
 
@@ -38,12 +40,18 @@ aws sso login --profile blossom-dev
 ### Levantar el servidor
 
 ```bash
-# Desde la raíz del repo — PYTHONPATH=src es obligatorio
-PYTHONPATH=src uvicorn src.main:app --reload --port 8000
+# Desde la raíz del repo — dos variables obligatorias:
+#   PYTHONPATH=src       → expone smart_budget al import
+#   SMART_BUDGET_DATA_DIR → path absoluto a los CSVs (evita "data directory not configured")
+
+PYTHONPATH=src \
+SMART_BUDGET_DATA_DIR=$(pwd)/data/dough \
+.venv/bin/uvicorn src.main:app --reload --port 8000
 ```
 
-> **Nota:** `smart_budget` vive en `src/smart_budget/`. Sin `PYTHONPATH=src` uvicorn
-> no lo encuentra y lanza `ModuleNotFoundError: No module named 'smart_budget'`.
+> **Nota:** `smart_budget` vive en `src/smart_budget/`. Sin `PYTHONPATH=src` se lanza
+> `ModuleNotFoundError: No module named 'smart_budget'`.
+> Sin `SMART_BUDGET_DATA_DIR` se lanza `Internal Server Error: data directory not configured`.
 
 El servidor queda disponible en `http://localhost:8000`.
 
@@ -490,10 +498,11 @@ aws sagemaker delete-endpoint \
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'fastapi'` | Dependencias no instaladas | `pip install -r requirements.txt` |
-| `ModuleNotFoundError: No module named 'smart_budget'` | Paquete no instalado en modo editable | `pip install -e .` |
+| `ModuleNotFoundError: No module named 'fastapi'` | Dependencias no instaladas | `.venv/bin/pip install -r requirements.txt` |
+| `ModuleNotFoundError: No module named 'smart_budget'` | `PYTHONPATH` no apunta a `src/` | Usar `PYTHONPATH=src` al inicio del comando uvicorn |
+| `Internal Server Error: data directory not configured` | `SMART_BUDGET_DATA_DIR` no configurado | Usar `SMART_BUDGET_DATA_DIR=$(pwd)/data/dough` (path absoluto) |
 | `404 Not Found` en `/suggestion` | El `idaccount` no existe en ningún CSV | Usar cuentas de la tabla de cuentas disponibles |
-| `Base dir not found` en logs | `SMART_BUDGET_DATA_DIR` apunta a un path que no existe | Verificar que `data/dough/` existe y tiene los CSVs |
+| `Base dir not found` en logs | Path relativo no resuelve desde el CWD | Reemplazar con path absoluto: `$(pwd)/data/dough` |
 | SageMaker: `EndpointNotFound` | El endpoint no está desplegado | Correr el notebook completo (Steps 1-3) |
 | SageMaker: `AccessDeniedException` | Sin credenciales AWS activas | `aws sso login --profile blossom-dev` |
 
