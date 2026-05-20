@@ -3,8 +3,8 @@ title: Tech Stack
 aliases: [Dependencias, Dependencies, Stack]
 tags: [overview, tech-stack]
 type: overview
-last_mapped_at: 2026-05-13T10:20:00Z
-last_commit: fc0547f
+last_mapped_at: 2026-05-19T23:57:00Z
+last_commit: 9c0a1dc
 ---
 
 # Tech Stack
@@ -16,7 +16,9 @@ last_commit: fc0547f
 | Lenguaje | Python 3.9+ (recomendado 3.11+) |
 | Data processing | `pandas >= 1.5.0` |
 | Time-series forecasting | `statsmodels` (ExponentialSmoothing para Holt-Winters) |
+| REST API | `fastapi`, `uvicorn`, `pydantic` |
 | AWS / S3 | `boto3`, `pyarrow` (lectura de Parquet en el datalake) |
+| AWS SageMaker | `sagemaker` SDK, imagen `sklearn:1.2-1` (Python 3.9, numpy 1.23.5, pandas 1.5.3) |
 | Logging | `structlog >= 21.0.0` (logs estructurados, nunca `print`) |
 
 ## Testing
@@ -42,19 +44,32 @@ last_commit: fc0547f
 |---|---|
 | Warehouse fuente | AWS Redshift / S3 Parquet |
 | Pipeline ETL | Python scripts (Fase 0) → dbt + Airflow (Fase 1+) |
-| Serving | BlossomAPI (REST) |
+| Serving Fase 0 | FastAPI (`src/api/`) + SageMaker `SKLearnModel` (`src/sagemaker/`) |
+| Serving Fase 1+ | BlossomAPI (REST) leyendo tabla pre-calculada |
 | Output DB | PostgreSQL (`blossom-dough-consolidated-dev`) |
 | Frontend | Dough UI (repo separado) |
+| S3 modelo | `s3://blossom-analytics-safe-dev-nv/smart_budget/endpoint/v1/model.tar.gz` |
 
 ## requirements.txt
 
 ```
 pandas>=1.5.0
+fastapi
+uvicorn
+pydantic
 pytest>=7.0.0
 structlog>=21.0.0
 ```
 
-> Nota: `statsmodels`, `boto3`, `pyarrow`, `numpy` se instalan localmente pero no están en `requirements.txt` de producción aún. Se agregarán en Fase 1 cuando el pipeline sea el source-of-truth.
+### SageMaker container pins (`src/sagemaker/requirements.txt`)
+
+```
+numpy==1.23.5
+pandas==1.5.3
+structlog>=21.0.0
+```
+
+> **Nota**: `statsmodels` NO se instala en el contenedor SageMaker (ABI conflict). Import lazy en `model.py` dentro de `compute_holt_winters()`. `boto3`, `pyarrow` para extracción local, no en producción.
 
 ## Convenciones de código
 

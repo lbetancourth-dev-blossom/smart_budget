@@ -3,8 +3,8 @@ title: Codemap Overview
 aliases: [MOC, Map of Content, Index]
 tags: [overview, moc]
 type: overview
-last_mapped_at: 2026-05-13T10:20:00Z
-last_commit: fc0547f
+last_mapped_at: 2026-05-19T23:57:00Z
+last_commit: 9c0a1dc
 ---
 
 # Smart Budget — Codemap
@@ -15,14 +15,16 @@ last_commit: fc0547f
 
 | # | Módulo | Path | Propósito |
 |---|---|---|---|
-| 01 | [[01-core-model/README\|Core Model]] | `src/smart_budget/` | Filtros, agregación y métodos de sugerencia (WMA, EWMA, Median, Holt-Winters) |
-| 02 | [[02-scripts/README\|Scripts ETL & CLI]] | `scripts/` | Extracción S3, construcción de `fact_transactions`, pipeline preparación, CLI de métodos |
-| 03 | [[03-tests/README\|Tests]] | `tests/` | Suite pytest: unit tests de filtros, agregador y modelo |
+| 01 | [[01-core-model/README\|Core Model]] | `src/smart_budget/` | Filtros, agregación y métodos de sugerencia (WMA, EWMA, Median, Holt-Winters). **Método seleccionado Fase 0: Median-B lb=6** |
+| 02 | [[02-scripts/README\|Scripts ETL & CLI]] | `scripts/` | Extracción S3, construcción de `fact_transactions`, pipeline preparación, CLI de métodos, evaluación |
+| 03 | [[03-tests/README\|Tests]] | `tests/` | Suite pytest: 107+ tests cubriendo filtros, agregador, modelo, API, SageMaker, loader |
+| 04 | [[04-api/README\|API FastAPI]] | `src/api/` | Endpoint REST `GET /smart-budget/suggestion` con validación Enum y pipeline orchestration |
+| 05 | [[05-sagemaker/README\|SageMaker Inference]] | `src/sagemaker/` | Script `SKLearnModel` para AWS SageMaker (imagen `sklearn:1.2-1`) |
 
 ## Conceptos transversales
 
-- [[Architecture]] — capas de datos, flujo batch, contrato JSON de output
-- [[Tech-Stack]] — dependencias y versiones
+- [[Architecture]] — capas de datos, flujo batch + serving, contrato JSON de output
+- [[Tech-Stack]] — dependencias y versiones (incluye FastAPI, SageMaker SDK)
 - [[Module-Map]] — directorio a módulo mapping
 - [[Glossary]] — términos de dominio (fact_transactions, gating, treatment, etc.)
 - [[Data-Pipeline]] — flujo S3 → silver → preparación → sugerencia

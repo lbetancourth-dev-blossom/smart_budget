@@ -3,8 +3,8 @@ title: Architecture
 aliases: [Arquitectura, System Design, Data Flow]
 tags: [overview, architecture, data-pipeline]
 type: overview
-last_mapped_at: 2026-05-13T10:20:00Z
-last_commit: fc0547f
+last_mapped_at: 2026-05-19T23:57:00Z
+last_commit: 9c0a1dc
 ---
 
 # Arquitectura — Smart Budget
@@ -41,28 +41,26 @@ flowchart LR
         MODEL["compute_budget_suggestions()\nmodel.py"]
     end
 
-    subgraph output["Output"]
-        PREP["smart_budget_prep.csv\n(prepared data)"]
-        SUGG["smartBudgetSuggestion\n(DB table — Fase 1)"]
-        LOG["smartBudgetSuggestionLog\n(append-only — Fase 1)"]
+    subgraph serving["Serving (Fase 0)"]
+        FASTAPI["FastAPI\nGET /smart-budget/suggestion\nsrc/api/router.py"]
+        SAGEMAKER["SageMaker SKLearnModel\ninference.py\nsklearn:1.2-1"]
     end
 
-    subgraph api["BlossomAPI"]
-        GET["GET /smart-budget/suggestion"]
-        POST["POST /smart-budget/decision"]
+    subgraph output["Output (Fase 1+)"]
+        SUGG["smartBudgetSuggestion\n(DB table)"]
+        LOG["smartBudgetSuggestionLog\n(append-only)"]
     end
 
     OLB --> FT
     DOUGH --> FT
     FT --> FILTER
     FILTER --> AGG
-    AGG --> PREP
-    PREP --> MODEL
+    AGG --> MODEL
+    MODEL --> FASTAPI
+    MODEL --> SAGEMAKER
     MODEL --> SUGG
-    SUGG --> GET
-    GET --> UI["Dough UI"]
-    UI --> POST
-    POST --> LOG
+    SUGG --> UI["Dough UI"]
+    UI --> LOG
 ```
 
 ## Modo de operación: batch + serving
@@ -82,6 +80,15 @@ Toda query filtrada por `(idClient, idCompany, idMember)`. Nunca cross-user ni c
 ## Snapshot freeze
 
 Una sugerencia mostrada al usuario **nunca se modifica** retroactivamente. Si el modelo recalcula con nuevos datos, se inserta una **fila nueva** con timestamp distinto.
+
+## Endpoints de Fase 0 (serving on-demand)
+
+En Fase 0, el modelo no pre-calcula en batch — responde on-demand desde CSVs pre-cargados.
+
+| Canal | Módulo | Descripción |
+|---|---|---|
+| FastAPI local | [[04-api/README]] | `GET /smart-budget/suggestion` via uvicorn |
+| SageMaker | [[05-sagemaker/README]] | `SKLearnModel` en imagen `sklearn:1.2-1` |
 
 ## Cómo se desarrollan features en este repo
 

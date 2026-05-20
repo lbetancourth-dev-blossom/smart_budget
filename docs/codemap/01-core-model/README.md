@@ -3,8 +3,8 @@ title: Core Model
 aliases: [smart_budget, Modelo central, src/smart_budget]
 tags: [module, core-model, pipeline, model]
 type: module
-last_mapped_at: 2026-05-13T10:20:00Z
-last_commit: fc0547f
+last_mapped_at: 2026-05-19T23:57:00Z
+last_commit: 9c0a1dc
 ---
 
 # Core Model — `src/smart_budget/`

@@ -6,7 +6,7 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 
 ---
 
-## Estado — Fase 0 (El Reflejo)
+## Estado — Fase 0 ✅ COMPLETADA
 
 | Ticket | Descripción | Estado |
 |--------|-------------|--------|
@@ -14,24 +14,41 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 | `DATA-1137` | Dataset sintético para pruebas | ✅ Merged |
 | `DATA-1138` | Evaluación de métodos: WMA, EWMA, mediana, Holt-Winters | ✅ Merged — **WMA Treatment B seleccionado** |
 | `DATA-1139` | Datasets de test por fuente (internal / external) | ✅ Merged |
-| `DATA-1140` | Endpoint on-demand de inferencia (FastAPI + SageMaker) | 🔄 En revisión (PR #9) |
+| `DATA-1140` | Endpoint on-demand de inferencia (FastAPI + SageMaker) | ✅ Merged |
+
+**Fase 0 cerrada el 2026-05-19.** Todos los tickets en `development`. Cobertura de tests: ~93% (107/108 passing).
 
 ---
 
-## Método seleccionado: WMA Treatment B
+## Método seleccionado: Median Treatment B · lb=6
 
-`DATA-1138` comparó 4 métodos sobre un split temporal (train Jun2025–Mar2026, holdout Apr2026).
-El método seleccionado para producción es **Weighted Moving Average (WMA) con Treatment B y lookback=3**:
+`DATA-1138` evaluó 4 métodos × 4 lookbacks (16 configuraciones) con split temporal: train Jun2025–Mar2026, holdout Apr2026 (73 buckets reales). Métrica compuesta: **CRWS** (Composite Relative Weighted Score).
 
-| Método | MAE | Cobertura | Razón de exclusión |
-|--------|-----|-----------|-------------------|
-| Mediana | 72.31 | 100% | Baseline — referencia |
-| WMA **Treatment B · lb=3** ✅ | **63.45** | 100% | **Seleccionado** — mejor MAE, 100% cobertura |
-| EWMA | 68.12 | 100% | MAE mayor que WMA |
-| Holt-Winters | 71.80 | 91% | Cobertura incompleta, complejidad innecesaria |
+### Top configuraciones por CRWS
 
-> **Treatment B:** pondera más los meses recientes dentro de la ventana de lookback.
-> **lookback=3:** usa los últimos 3 meses calendario completos (antes del mes en presupuesto).
+| Método | lb | MAE | Cobertura | null% | MAE estacional | MAE regular | CRWS |
+|---|---|---|---|---|---|---|---|
+| WMA-B | 3 | $48.63 | 86.3% | 7.35% | $176.62 | $39.95 | 0.5372 |
+| EWMA-B | 3 | $50.53 | 86.3% | 7.35% | $176.81 | $41.97 | 0.5174 |
+| Median-B | 3 | $52.70 | 86.3% | 7.35% | $176.81 | $44.28 | 0.4947 |
+| EWMA-B | 6 | $80.92 | 91.8% | 1.47% | $395.66 | $44.20 | 0.3763 |
+| WMA-B | 6 | $93.47 | 91.8% | 1.47% | $428.32 | $54.41 | 0.3053 |
+| **Median-B** ✅ | **6** | **$91.31** | **91.8%** | **1.47%** | **$385.04** | **$57.04** | **0.2870** |
+| Holt-Winters-B | 6 | $63.01 | 83.6% | 10.29% | $280.96 | $51.73 | 0.2857 |
+
+> **Configuraciones lb=9/12** producen MAE > $100 y CRWS < 0.25 — descartadas.
+
+### Método seleccionado para Fase 0
+
+**Median + Treatment B + lookback=6** como default único:
+
+- **Mejor MAE estacional** entre lb≥6: $385 vs $428 (WMA) y $395 (EWMA) — categorías de alta varianza (Travel, Gifts, Education) son el caso más difícil.
+- **null_rate 1.47%** (1 bucket de 68) — prácticamente cobertura total.
+- **Robustez ante outliers**: la mediana no se arrastra por meses de gasto extraordinario.
+- lb=3 tiene mejor CRWS (0.53) pero con historial corto (7.35% nulls) — válido para usuarios nuevos, pero menos representativo con dataset completo.
+
+> **Treatment B:** excluye meses con $0 del cálculo — usa solo meses con gasto real.
+> **lookback=6:** usa los últimos 6 meses calendario completos antes del mes presupuestado.
 
 ---
 
@@ -143,7 +160,12 @@ smart_budget/
 │   ├── main.py                          Entrypoint FastAPI
 │   ├── api/
 │   │   ├── router.py                    Endpoint GET /smart-budget/suggestion
-│   │   └── inference.py                 Handler SageMaker (misma lógica)
+│   │   ├── inference.py                 Handler SageMaker (misma lógica, protocolo SKLearnModel)
+│   │   └── CLAUDE.md
+│   ├── sagemaker/
+│   │   ├── inference.py                 Script SageMaker (model_fn/input_fn/predict_fn/output_fn)
+│   │   ├── requirements.txt             Pins para imagen sklearn:1.2-1
+│   │   └── CLAUDE.md
 │   └── smart_budget/
 │       ├── filters.py                   5 reglas de filtrado
 │       ├── aggregator.py                Agregación mensual + zero-fill + gating
@@ -162,7 +184,7 @@ smart_budget/
 │   │   ├── test_filters.py
 │   │   ├── test_aggregator.py
 │   │   ├── test_model.py
-│   │   ├── test_api.py                  8 TCs — reglas de validación del endpoint
+│   │   ├── test_api.py                  10 TCs — reglas de validación del endpoint
 │   │   └── test_eval_runner.py
 │   └── fixtures/
 │       ├── golden_set.csv
