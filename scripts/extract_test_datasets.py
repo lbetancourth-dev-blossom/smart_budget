@@ -71,11 +71,13 @@ def split_by_source(
     Returns:
         Tuple ``(internal_df, external_df, n_unknown)`` where:
 
-        - *internal_df*: rows whose ``idtransaction`` starts with ``"SUB"`` or ``"LOAN"``
+        - *internal_df*: rows whose ``idtransaction`` starts with ``"SUB"``
+          (LOAN prefix excluded — loan payments are financial obligations, not
+          discretionary spending, and are filtered out by filter_transactions Rule 4)
         - *external_df*: rows whose ``idtransaction`` starts with ``"EXT"``
         - *n_unknown*: number of rows excluded because their prefix is unrecognised
     """
-    is_internal = df["idtransaction"].str.startswith(("SUB", "LOAN"))
+    is_internal = df["idtransaction"].str.startswith("SUB")
     is_external = df["idtransaction"].str.startswith("EXT")
     is_known = is_internal | is_external
     n_unknown = int((~is_known).sum())

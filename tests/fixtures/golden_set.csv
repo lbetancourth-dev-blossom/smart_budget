@@ -1,71 +1,66 @@
 idaccount,idclient,idcompany,category_id,defaultcategory,suggested_amount,confidence,months_analyzed,months_with_zero,months_with_positive_spend
-EXT2,1,1,1,Auto & Transport,136.7,high,10,1,9
-EXT2,1,1,2,Bills & Utilities,97.53,high,10,1,9
+EXT2,1,1,1,Auto & Transport,148.69,medium,4,0,4
+EXT2,1,1,2,Bills & Utilities,92.03,medium,4,0,4
 EXT2,1,1,6,Health & Fitness,71.94,medium,4,0,4
-EXT2,1,1,7,Food & Dining,102.6,high,10,1,9
+EXT2,1,1,7,Food & Dining,76.45,medium,4,0,4
 EXT2,1,1,7,Home & Rent,1527.62,medium,4,0,4
-EXT2,1,1,8,Groceries,112.93,high,10,0,10
+EXT2,1,1,8,Groceries,46.88,medium,4,0,4
 EXT2,1,1,10,Entertainment & Leisure,46.16,medium,4,1,3
 EXT2,1,1,13,Pets,56.4,medium,4,1,3
-EXT2,1,1,15,Shopping,137.95,high,10,4,6
-EXT2,1,1,16,Subscriptions,28.66,high,10,1,9
-EXT2,1,1,27,Gas,48.43,high,10,2,8
-EXT22,1,1,1,Auto & Transport,86.34,high,10,0,10
-EXT22,1,1,2,Bills & Utilities,78.66,high,10,0,10
+EXT2,1,1,15,Shopping,197.57,medium,4,0,4
+EXT2,1,1,16,Subscriptions,25.27,medium,4,0,4
+EXT2,1,1,27,Gas,35.84,medium,4,0,4
+EXT22,1,1,1,Auto & Transport,42.21,medium,4,0,4
+EXT22,1,1,2,Bills & Utilities,56.95,medium,4,0,4
 EXT22,1,1,4,Groceries,175.12,medium,4,1,3
 EXT22,1,1,5,Gas,62.13,medium,4,1,3
-EXT22,1,1,10,Health & Fitness,93.34,high,10,0,10
-EXT22,1,1,11,Home & Rent,989.12,high,10,1,9
+EXT22,1,1,10,Health & Fitness,77.82,medium,4,0,4
+EXT22,1,1,11,Home & Rent,1215.88,medium,4,0,4
 INT31880,1,1,2,Bills & Utilities,96.86,medium,4,0,4
-INT31880,1,1,5,Groceries,68.6,medium,10,6,4
 INT31880,1,1,10,Entertainment & Leisure,52.04,low,4,2,2
 INT31880,1,1,12,Education,72.44,low,4,2,2
 INT31880,1,1,13,Pets,31.36,low,4,2,2
-SYN001,1,1,1,Auto & Transport,162.32,high,10,1,9
-SYN001,1,1,2,Bills & Utilities,105.35,high,10,2,8
-SYN001,1,1,7,Home & Rent,785.68,high,10,3,7
-SYN001,1,1,10,Entertainment & Leisure,54.26,medium,10,5,5
-SYN001,1,1,13,Pets,59.01,high,10,4,6
-SYN002,1,1,1,Auto & Transport,150.44,high,10,1,9
-SYN002,1,1,4,Groceries,288.35,high,10,0,10
-SYN002,1,1,9,Subscriptions,40.02,high,10,2,8
-SYN002,1,1,10,Entertainment & Leisure,65.4,high,10,3,7
-SYN002,1,1,13,Pets,59.85,high,10,3,7
-SYN002,1,1,14,Gifts & Donations,63.58,high,10,2,8
-SYN002,1,1,15,Travel & Trips,172.32,medium,10,7,3
-SYN003,1,1,4,Groceries,218.67,high,10,1,9
-SYN003,1,1,7,Home & Rent,1038.93,high,10,0,10
-SYN003,1,1,9,Subscriptions,24.97,high,10,1,9
-SYN003,1,1,11,Personal Care & Beauty,28.71,high,10,4,6
-SYN003,1,1,12,Education,136.47,medium,10,5,5
-SYN003,1,1,15,Travel & Trips,274.02,medium,10,7,3
-SYN004,1,1,1,Auto & Transport,129.12,high,10,0,10
-SYN004,1,1,3,Food & Dining,138.01,high,10,1,9
-SYN004,1,1,5,Gas,70.5,high,10,2,8
-SYN004,1,1,8,Shopping,87.4,high,10,3,7
-SYN004,1,1,10,Entertainment & Leisure,45.28,medium,10,5,5
-SYN005,1,1,3,Food & Dining,95.69,high,10,3,7
-SYN005,1,1,4,Groceries,190.43,high,10,1,9
-SYN005,1,1,5,Gas,61.32,high,10,2,8
-SYN005,1,1,6,Health & Fitness,98.29,high,10,1,9
-SYN005,1,1,7,Home & Rent,1130.6,high,10,0,10
-SYN005,1,1,12,Education,228.61,high,10,3,7
-SYN006,1,1,2,Bills & Utilities,151.27,high,10,0,10
-SYN006,1,1,6,Health & Fitness,83.56,high,10,0,10
-SYN006,1,1,7,Home & Rent,1157.13,high,10,0,10
-SYN006,1,1,12,Education,155.02,high,10,4,6
-SYN006,1,1,13,Pets,35.93,medium,10,5,5
-SYN007,1,1,1,Auto & Transport,139.48,high,10,2,8
-SYN007,1,1,2,Bills & Utilities,152.88,high,10,0,10
-SYN007,1,1,4,Groceries,158.12,high,10,2,8
-SYN007,1,1,5,Gas,32.63,medium,10,5,5
-SYN007,1,1,6,Health & Fitness,58.22,high,10,3,7
-SYN007,1,1,8,Shopping,52.63,medium,10,5,5
-SYN007,1,1,10,Entertainment & Leisure,92.58,high,10,3,7
-SYN007,1,1,14,Gifts & Donations,20.76,medium,10,5,5
-SYN007,1,1,15,Travel & Trips,330.81,medium,10,6,4
-SYN008,1,1,2,Bills & Utilities,143.92,high,10,0,10
-SYN008,1,1,5,Gas,34.95,high,10,4,6
-SYN008,1,1,9,Subscriptions,57.09,high,10,1,9
-SYN008,1,1,10,Entertainment & Leisure,79.74,high,10,3,7
-SYN008,1,1,11,Personal Care & Beauty,46.28,high,10,3,7
+SYN001,1,1,1,Auto & Transport,162.94,medium,4,0,4
+SYN001,1,1,2,Bills & Utilities,151.7,medium,4,1,3
+SYN001,1,1,7,Home & Rent,703.71,medium,4,1,3
+SYN001,1,1,10,Entertainment & Leisure,46.35,medium,4,1,3
+SYN001,1,1,13,Pets,69.59,medium,4,1,3
+SYN002,1,1,1,Auto & Transport,193.35,medium,4,0,4
+SYN002,1,1,4,Groceries,331.17,medium,4,0,4
+SYN002,1,1,9,Subscriptions,51.58,medium,4,0,4
+SYN002,1,1,10,Entertainment & Leisure,6.43,low,4,3,1
+SYN002,1,1,13,Pets,41.1,medium,4,1,3
+SYN002,1,1,14,Gifts & Donations,48.35,medium,4,1,3
+SYN003,1,1,4,Groceries,215.73,medium,4,1,3
+SYN003,1,1,7,Home & Rent,1014.43,medium,4,0,4
+SYN003,1,1,9,Subscriptions,9.87,medium,4,1,3
+SYN003,1,1,11,Personal Care & Beauty,28.93,low,4,2,2
+SYN003,1,1,12,Education,96.55,low,4,2,2
+SYN004,1,1,1,Auto & Transport,89.55,medium,4,0,4
+SYN004,1,1,3,Food & Dining,115.79,medium,4,1,3
+SYN004,1,1,5,Gas,93.36,medium,4,0,4
+SYN004,1,1,8,Shopping,86.89,medium,4,1,3
+SYN004,1,1,10,Entertainment & Leisure,28.78,low,4,2,2
+SYN005,1,1,3,Food & Dining,92.94,medium,4,1,3
+SYN005,1,1,4,Groceries,133.29,medium,4,1,3
+SYN005,1,1,5,Gas,52.19,low,4,2,2
+SYN005,1,1,6,Health & Fitness,106.1,medium,4,0,4
+SYN005,1,1,7,Home & Rent,1219.98,medium,4,0,4
+SYN005,1,1,12,Education,234.39,medium,4,1,3
+SYN006,1,1,2,Bills & Utilities,140.28,medium,4,0,4
+SYN006,1,1,6,Health & Fitness,74.18,medium,4,0,4
+SYN006,1,1,7,Home & Rent,1370.18,medium,4,0,4
+SYN006,1,1,12,Education,127.12,medium,4,1,3
+SYN007,1,1,1,Auto & Transport,111.32,medium,4,1,3
+SYN007,1,1,2,Bills & Utilities,153.97,medium,4,0,4
+SYN007,1,1,4,Groceries,156.26,medium,4,1,3
+SYN007,1,1,5,Gas,29.03,low,4,2,2
+SYN007,1,1,6,Health & Fitness,50.01,medium,4,1,3
+SYN007,1,1,8,Shopping,57.25,low,4,2,2
+SYN007,1,1,10,Entertainment & Leisure,103.1,medium,4,0,4
+SYN007,1,1,14,Gifts & Donations,14.1,low,4,3,1
+SYN008,1,1,2,Bills & Utilities,142.56,medium,4,0,4
+SYN008,1,1,5,Gas,37.53,medium,4,1,3
+SYN008,1,1,9,Subscriptions,60.52,medium,4,0,4
+SYN008,1,1,10,Entertainment & Leisure,97.6,medium,4,0,4
+SYN008,1,1,11,Personal Care & Beauty,65.98,medium,4,1,3

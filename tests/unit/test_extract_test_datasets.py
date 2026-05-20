@@ -65,11 +65,13 @@ def test_split_sub_goes_to_internal():
 
 
 # ---------------------------------------------------------------------------
-# TC-2 — Prefijo LOAN → internal
+# TC-2 — Prefijo LOAN → excluido (filtrado por Rule 4 de filter_transactions)
 # ---------------------------------------------------------------------------
 
 
-def test_split_loan_goes_to_internal():
+def test_split_loan_goes_to_unknown():
+    """LOAN transactions son excluidas por filter_transactions (Rule 4) antes de llegar
+    a split_by_source. Si por alguna razón llegaran, se clasifican como unknown."""
     # Arrange
     df = _make_fact_df([
         ("LOAN001", "expenditure", "AUTO", None, None, 200.0),
@@ -77,10 +79,10 @@ def test_split_loan_goes_to_internal():
     ])
     # Act
     internal, external, n_unknown = split_by_source(df)
-    # Assert
-    assert len(internal) == 2
+    # Assert — LOAN no es SUB ni EXT → n_unknown=2, no van a internal ni external
+    assert len(internal) == 0
     assert len(external) == 0
-    assert n_unknown == 0
+    assert n_unknown == 2
 
 
 # ---------------------------------------------------------------------------

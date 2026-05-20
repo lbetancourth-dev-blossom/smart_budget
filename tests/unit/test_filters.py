@@ -62,7 +62,7 @@ def test_filter_removes_invalid_categories(category):
 
 
 # ---------------------------------------------------------------------------
-# TC-2.4 — OLB PENDING exclusion
+# TC-2.4 — OLB PENDING exclusion + LOAN exclusion
 # ---------------------------------------------------------------------------
 
 def test_filter_removes_olb_pending():
@@ -75,8 +75,9 @@ def test_filter_removes_olb_pending():
         "amount": [100.0, 75.0, 200.0],
     })
     result = filter_transactions(df)
-    assert len(result) == 2
-    assert "SUB2" not in result["idtransaction"].values
+    # SUB1 pasa (status None), SUB2 excluido (PENDING), LOAN1 excluido (Rule 4)
+    assert len(result) == 1
+    assert result.iloc[0]["idtransaction"] == "SUB1"
 
 
 # ---------------------------------------------------------------------------
@@ -102,10 +103,10 @@ def test_filter_external_only_posted():
 # ---------------------------------------------------------------------------
 
 def test_filter_combined_rules():
-    """Fixture: rows covering all 5 rules; exactly 5 valid IDs must survive."""
+    """Fixture: rows covering all 6 rules; LOAN_VALID_1 excluido por Rule 4."""
     df = _load_fixture("fact_transactions_test.csv")
     result = filter_transactions(df)
-    expected_ids = {"SUB_VALID_1", "SUB_VALID_2", "LOAN_VALID_1", "EXT_POSTED_1", "EXT_POSTED_2"}
+    expected_ids = {"SUB_VALID_1", "SUB_VALID_2", "EXT_POSTED_1", "EXT_POSTED_2"}
     assert set(result["idtransaction"].values) == expected_ids
 
 
