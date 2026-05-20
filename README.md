@@ -4,193 +4,270 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 
 > Smart Budget sugiere al miembro montos por categoría de gasto basándose en su propio historial transaccional, eliminando el "punto de partida en blanco" del presupuesto manual.
 
-## Estado actual
+---
 
-**Fase 0 (El Reflejo)** — rama `DATA-1041`
+## Estado — Fase 0 ✅ COMPLETADA
 
-| Step | Estado | Resultado |
-|------|--------|-----------|
-| Step 1 — Extracción DOUGH | ✅ | 30 tablas dev + 23 alpha → `data/dough/*/silver/` |
-| Step 2 — Extracción OLB | ✅ | 7 tablas → `data/olb/dev/silver/` (1.06M txns) |
-| Step 3 — `fact_transactions` | ✅ | **1,413,914 filas** (OLB SUB + LOAN + Dough EXT), rango 2022–2026 |
-| Step 4 — Preparación datos (DATA-1136) | ✅ | 180 filas limpias → `data/dough/smart_budget_prep.csv` |
-| Step 5 — Modelo mediana | 🔄 | Pendiente |
-| Step 6 — Output BD | 🔄 | Pendiente: escribir a `budget` + `budgetcategory` |
+| Ticket | Descripción | Estado |
+|--------|-------------|--------|
+| `DATA-1136` | Preparación de datos: filtros, agregación mensual, gating | ✅ Merged |
+| `DATA-1137` | Dataset sintético para pruebas | ✅ Merged |
+| `DATA-1138` | Evaluación de métodos: WMA, EWMA, mediana, Holt-Winters | ✅ Merged — **WMA Treatment B seleccionado** |
+| `DATA-1139` | Datasets de test por fuente (internal / external) | ✅ Merged |
+| `DATA-1140` | Endpoint on-demand de inferencia (FastAPI + SageMaker) | ✅ Merged |
 
-**Arquitectura de datos:**
+**Fase 0 cerrada el 2026-05-19.** Todos los tickets en `development`. Cobertura de tests: ~93% (107/108 passing).
+
+---
+
+## Método seleccionado: WMA Treatment B · lb=3
+
+`DATA-1138` evaluó 4 métodos × 4 lookbacks (16 configuraciones) con split temporal: train Jun2025–Mar2026, holdout Apr2026 (73 buckets reales). Métrica de selección: **CRWS** (Composite Relative Weighted Score — mayor es mejor).
+
+### Ranking por CRWS (top 9)
+
+| # | Método | lb | CRWS | MAE | MAE regular | MAE estacional | null% |
+|---|---|---|---|---|---|---|---|
+| **1** | **WMA-B** ✅ | **3** | **0.5372** | **$48.63** | **$39.95** | $176.62 (4 buckets) | 7.35% |
+| 2 | EWMA-B | 3 | 0.5174 | $50.53 | $41.97 | $176.81 | 7.35% |
+| 3 | Median-B | 3 | 0.4947 | $52.70 | $44.28 | $176.81 | 7.35% |
+| 4 | EWMA-B | 6 | 0.3763 | $80.92 | $44.20 | $395.66 | 1.47% |
+| 5 | EWMA-B | 9 | 0.3091 | $113.87 | $44.83 | $631.64 | 0.00% |
+| 6 | WMA-B | 6 | 0.3053 | $93.47 | $54.41 | $428.32 | 1.47% |
+| 7 | Median-B | 6 | 0.2870 | $91.31 | $57.04 | $385.04 | 1.47% |
+| 8 | Holt-Winters-B | 6 | 0.2857 | $63.01 | $51.73 | $280.96 | 10.29% |
+| 9 | EWMA-B | 12 | 0.2679 | $100.75 | $44.79 | $520.47 | 0.00% |
+
+### Método seleccionado: WMA-B lb=3
+
+- **Mejor CRWS (0.5372):** +3.8% sobre EWMA lb=3, +87% sobre Median lb=6
+- **Menor MAE ($48.63):** 47% mejor que Median lb=6 ($91.31)
+- **Mejor MAE regular ($39.95):** 30% más preciso en categorías de gasto frecuente (Groceries, Gas, Food & Dining)
+- **null_rate 7.35% ya penalizado en CRWS** — no es un disqualifier externo
+
+> **Limitación conocida:** con lb=3 solo se evalúan 4/8 buckets estacionales. Fase 1 implementará selección adaptativa: WMA lb=3 para categorías regulares, Median lb=6 para estacionales (Travel, Gifts, Education).
+
+> **Treatment B:** excluye meses con $0 — calcula solo sobre meses con gasto real.
+> **lookback=3:** usa los últimos 3 meses calendario completos antes del mes presupuestado.
+
+---
+
+## Arquitectura del pipeline
+
 ```
-OLBSubAccountTransaction ─┐
-OLBLoanTransaction        ├──→ fact_transactions ──→ Smart Budget
-externaltransaction       ─┘
+S3 silver (DOUGH + OLB)
+    │
+    ├── scripts/build_fact_transactions.py   → data/dough/fact_transactions.csv (1.4M filas)
+    │
+    ├── scripts/run_smart_budget_prep.py     → data/dough/smart_budget_prep.csv (agregado mensual)
+    │
+    ├── scripts/extract_test_datasets.py     → data/dough/test/test_internal.csv
+    │                                           data/dough/test/test_external.csv
+    │
+    └── scripts/run_methods.py               → data/dough/results/<method>_results.csv
+         │   method=wma, treatment=B, lookback=3
+         ▼
+    GET /smart-budget/suggestion             ← src/api/router.py (FastAPI)
+    ▲                                        ← src/api/inference.py (SageMaker)
+    │
+    Dough UI
 ```
 
-## Catálogo de categorías
+**Modo de operación:** batch pre-calculado. El endpoint carga CSVs locales y ejecuta el pipeline completo por request (Fase 0). En Fase 1 se materializa en tabla `smartBudgetSuggestion`.
 
-Las categorías provienen de la tabla `defaultcategory` y están organizadas en 4 grupos.
-Smart Budget **solo opera sobre el Grupo 1 (Expenses)**.
+---
 
-### Grupo 1 — Expenses ✅ (usadas por Smart Budget)
+## Endpoint de inferencia (DATA-1140)
 
-| ID | Categoría |
-|---|---|
-| 1 | Auto & Transport |
-| 2 | Bills & Utilities |
-| 3 | Business Services |
-| 4 | Education |
-| 5 | Entertainment & Leisure |
-| 6 | Financial Services |
-| 7 | Food & Dining |
-| 8 | Groceries |
-| 9 | Gifts & Donations |
-| 10 | Health & Fitness |
-| 11 | Home & Rent |
-| 12 | Kids & Family |
-| 13 | Personal Care & Beauty |
-| 14 | Pets |
-| 15 | Shopping |
-| 16 | Subscriptions |
-| 17 | Taxes & Fees |
-| 18 | Travel & Trips |
-| 27 | Gas |
-| 28 | Transfers & payments |
-| 29 | Transfers & Payments |
+### Local (FastAPI)
 
-### Grupo 2 — Incomes ❌ (excluidas del modelo)
+```bash
+# Activar entorno y levantar servidor
+source .venv/bin/activate
+uvicorn src.main:app --reload --port 8000
 
-| ID | Categoría |
-|---|---|
-| 19 | Business Income |
-| 20 | Income |
+# Swagger UI: http://localhost:8000/docs
+```
 
-### Grupo 3 — Excluded ❌ (excluidas del modelo)
+```bash
+# Happy path
+curl "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05"
 
-| ID | Categoría |
-|---|---|
-| 21 | Internal Transfers |
-| 22 | Credit Card Payment |
-| 23 | Loan Payment |
-| 24 | ATM & Cash |
-| 25 | Savings & Investments |
+# Sin datos suficientes → suggested_amount: null (HTTP 200)
+curl "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05"
+```
 
-### Grupo 4 — Other
+### Reglas de validación del endpoint
 
-| ID | Categoría | Visible |
-|---|---|---|
-| 26 | Other | No (`shouldshow = false`) |
+| # | Condición | Respuesta |
+|---|-----------|-----------|
+| 1 | `idaccount` no existe en los datos | HTTP 404 — `idaccount not found` |
+| 2 | `defaultcategory` no válida (no es una categoría del catálogo) | HTTP 422 — `invalid category` |
+| 3 | Cuenta y categoría existen, sin datos para el período | HTTP 200 — `suggested_amount: null` |
 
-> **Nota:** El catálogo es plano — no hay subcategorías en el schema actual de Dough.
-> Las CUs con RICH (Ntropy) tienen categorías custom adicionales mapeadas en `companyntropycategory`.
+### Respuesta de ejemplo
+
+```json
+{
+  "idaccount": "EXT2",
+  "defaultcategory": "Food & Dining",
+  "period_id": "2026-05",
+  "suggested_amount": 184.32,
+  "confidence": "high",
+  "display_label": "Basado en tus últimos 3 meses",
+  "basis": {
+    "months_analyzed": 3,
+    "data_points": 3,
+    "method": "wma",
+    "treatment": "B",
+    "period_range": "2026-02~2026-04"
+  },
+  "amount_by_month": {
+    "2026-04": 210.50,
+    "2026-03": 175.00,
+    "2026-02": 163.20
+  },
+  "model_version": "fase0-v1"
+}
+```
+
+**Niveles de `confidence`:** `high` (≥6 meses) · `medium` (3–5 meses) · `low` (2 meses) · `null` (sin datos).
+
+---
+
+## Reglas de filtrado (obligatorias)
+
+```python
+# INCLUIR
+status     == 'Posted'    # Nunca Pending, Cancelled, Hold
+tipo       == 'expense'   # Solo gastos (expenditure), no income
+deletedat  IS NULL        # Excluir soft-deleted
+
+# EXCLUIR
+defaultcategory IN ('UNCATEGORIZED', None, 'INCOME', 'MONEY_SENT')
+tipo_transaccion IN ('Internal', 'Member-to-Member')
+```
+
+Implementadas en `src/smart_budget/filters.py`. **Nunca bypassear.**
+
+---
 
 ## Estructura del repo
 
 ```
 smart_budget/
-├── README.md
-├── .github/
-│   └── copilot-instructions.md         Convenciones y reglas para GitHub Copilot.
-├── data/                               Gitignored — datos locales.
-│   ├── dough/
-│   │   ├── dev/silver/*.csv            30 tablas DOUGH (dev)
-│   │   ├── alpha/silver/*.csv          23 tablas DOUGH (alpha)
-│   │   ├── fact_transactions.csv       Tabla central: 1,413,914 filas
-│   │   ├── fact_transactions_expenditure.csv   Solo gastos — apto para Excel
-│   │   └── fact_transactions_sample.csv        Muestra 50k filas
-│   └── olb/dev/silver/*.csv            7 tablas OLB dev
-├── docs/
-│   ├── plan/
-│   │   ├── plan_phase_0.md             Plan de implementación con resultados por step.
-│   │   └── phase0_remaining_tasks.md   Tareas pendientes para producción.
-│   ├── fact_transactions_README.md     Schema y documentación de fact_transactions.
-│   └── glosario.md                     Glosario de términos del proyecto.
-└── scripts/
-    ├── extract_datalake_to_csv.py         Extrae cualquier tabla del datalake S3 → CSV local.
-    └── build_fact_transactions.py      Construye fact_transactions (OLB + DOUGH).
+├── src/
+│   ├── main.py                          Entrypoint FastAPI
+│   ├── api/
+│   │   ├── router.py                    Endpoint GET /smart-budget/suggestion
+│   │   ├── inference.py                 Handler SageMaker (misma lógica, protocolo SKLearnModel)
+│   │   └── CLAUDE.md
+│   ├── sagemaker/
+│   │   ├── inference.py                 Script SageMaker (model_fn/input_fn/predict_fn/output_fn)
+│   │   ├── requirements.txt             Pins para imagen sklearn:1.2-1
+│   │   └── CLAUDE.md
+│   └── smart_budget/
+│       ├── filters.py                   5 reglas de filtrado
+│       ├── aggregator.py                Agregación mensual + zero-fill + gating
+│       ├── model.py                     4 métodos + compute_budget_suggestions()
+│       └── loader.py                    Carga CSVs (synthetic → raw fallback)
+├── scripts/
+│   ├── extract_datalake_to_csv.py       Extrae S3 datalake → CSV local
+│   ├── build_fact_transactions.py       Construye fact_transactions (OLB + DOUGH)
+│   ├── run_smart_budget_prep.py         Pipeline: filtra, agrega, gating
+│   ├── extract_test_datasets.py         Split por fuente: internal / external
+│   ├── eval_runner.py                   Evaluación comparativa de métodos
+│   ├── run_methods.py                   CLI de ejecución del modelo
+│   └── generate_synthetic_dataset.py   Dataset sintético para pruebas
+├── tests/
+│   ├── unit/
+│   │   ├── test_filters.py
+│   │   ├── test_aggregator.py
+│   │   ├── test_model.py
+│   │   ├── test_api.py                  10 TCs — reglas de validación del endpoint
+│   │   └── test_eval_runner.py
+│   └── fixtures/
+│       ├── golden_set.csv
+│       └── smart_budget_synthetic.csv
+├── data/                               Gitignored — nunca commitear
+│   └── dough/
+│       ├── fact_transactions.csv        Tabla central: 1.4M filas
+│       ├── smart_budget_prep.csv        Datos listos para el modelo
+│       ├── smart_budget_synthetic.csv   Dataset sintético (11 cuentas, 15 categorías)
+│       └── test/
+│           ├── test_internal.csv        Transacciones OLB (SUB/LOAN)
+│           └── test_external.csv        Transacciones Plaid/Finicity (EXT)
+└── docs/
+    ├── fact_transactions_README.md
+    ├── guides/smart-budget/
+    │   └── How-To-Use-Endpoint.md      Uso del endpoint local y SageMaker
+    └── codemap/
 ```
-
-## Pipeline de preparación Smart Budget (DATA-1136)
-
-El script `run_smart_budget_prep.py` toma `fact_transactions.csv` y produce un
-dataset limpio con el gasto mensual por `(miembro × categoría)`, listo para
-que el modelo de mediana calcule sugerencias.
-
-**Pasos internos:**
-1. **Filtrado** — descarta Pending, Uncategorized, Income, transferencias internas.
-2. **Agregación mensual** — suma gasto real por `(idmember, defaultcategory, YYYY-MM)`.
-3. **Zero-fill** — rellena meses sin actividad con `$0` para preservar el historial completo.
-4. **Cap P90** — clampea outliers al percentil 90 de los meses con gasto real.
-5. **Gating** — elimina pares `(miembro, categoría)` con menos de N meses con gasto.
-
-```bash
-# Requiere: pip install pandas structlog
-python scripts/run_smart_budget_prep.py \
-  --input  data/dough/fact_transactions.csv \
-  --output data/dough/smart_budget_prep.csv \
-  --min-months 3        # mínimo de meses con gasto para incluir el par
-```
-
-**Ejemplo de output (`smart_budget_prep.csv`):**
-
-| idclient | idcompany | idmember | defaultcategory | period_yyyymm | monthly_total | capped |
-|---|---|---|---|---|---|---|
-| 1 | 1 | INT31880 | GROCERIES | 2024-09 | 10.00 | False |
-| 1 | 1 | INT31880 | GROCERIES | 2024-10 | 22.50 | False |
-| 1 | 1 | INT31880 | GROCERIES | 2024-11 | 12.50 | False |
-| 1 | 1 | INT428 | FEES | 2025-07 | 13.00 | False |
-| 1 | 1 | INT428 | FEES | 2025-09 | 13.00 | False |
-| 1 | 1 | INT428 | FEES | 2025-10 | 13.00 | False |
-
-> En dev/alpha la mayoría de transacciones son `UNCATEGORIZED`, por lo que el
-> dataset resultante es pequeño (~180 filas, 3 miembros). En producción el
-> volumen es significativamente mayor.
 
 ---
 
-## Cómo refrescar los datos locales
-
-Requiere AWS CLI con perfil `blossom-dev` y SSO activo.
+## Setup y ejecución
 
 ```bash
-# Login SSO
+# 1. Entorno virtual
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+
+# 2. Tests
+pytest tests/ -v --cov=src/smart_budget --cov-report=term-missing
+
+# 3. Datos (requiere AWS SSO)
 aws sso login --profile blossom-dev
-
-# Instalar dependencias
-pip install boto3 pandas pyarrow
-
-# 1. Extraer tablas DOUGH (dev o alpha)
 python scripts/extract_datalake_to_csv.py --source DOUGH --env dev
-
-# Ver todas las fuentes disponibles en el datalake
-python scripts/extract_datalake_to_csv.py --list
-
-# 2. Construir fact_transactions
 python scripts/build_fact_transactions.py --env dev
-# Output: data/dough/fact_transactions.csv  (1.4M filas)
-#         data/dough/fact_transactions_expenditure.csv  (solo gastos, apto Excel)
-#         data/dough/fact_transactions_sample.csv       (50k filas para exploración)
+python scripts/run_smart_budget_prep.py --input data/dough/fact_transactions.csv
+
+# 4. Ejecutar modelo
+python scripts/run_methods.py --method wma --treatment B --lookback-months 3 --reference-date 2026-05
+
+# 5. Endpoint local
+uvicorn src.main:app --reload --port 8000
+# → http://localhost:8000/docs
 ```
+
+---
+
+## Catálogo de categorías
+
+Smart Budget **solo opera sobre Grupo 1 (Expenses)**. Grupos 2–4 se excluyen del modelo.
+
+| Grupo | Categorías | Incluidas |
+|-------|-----------|-----------|
+| 1 — Expenses | Auto & Transport, Bills & Utilities, Business Services, Education, Entertainment & Leisure, Financial Services, Food & Dining, Groceries, Gifts & Donations, Health & Fitness, Home & Rent, Kids & Family, Personal Care & Beauty, Pets, Shopping, Subscriptions, Taxes & Fees, Travel & Trips, Gas, Transfers & Payments | ✅ |
+| 2 — Incomes | Business Income, Income | ❌ |
+| 3 — Excluded | Internal Transfers, Credit Card Payment, Loan Payment, ATM & Cash, Savings & Investments | ❌ |
+| 4 — Other | Other (`shouldshow = false`) | ❌ |
+
+---
 
 ## Documentación clave
 
 | Documento | Para qué |
 |---|---|
-| [`docs/plan/plan_phase_0.md`](docs/plan/plan_phase_0.md) | Plan Fase 0 con resultados por step. |
-| [`docs/plan/phase0_remaining_tasks.md`](docs/plan/phase0_remaining_tasks.md) | Tareas pendientes hasta producción (testing, BD, API, compliance). |
-| [`docs/fact_transactions_README.md`](docs/fact_transactions_README.md) | Schema completo de `fact_transactions`: columnas, ids, fuentes. |
-| [`docs/glosario.md`](docs/glosario.md) | Definiciones de términos del proyecto (Dough, Plaid, OLB, RICH, etc.). |
-| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | Stack, convenciones, restricciones legales, casos edge. |
+| [`docs/guides/smart-budget/How-To-Use-Endpoint.md`](docs/guides/smart-budget/How-To-Use-Endpoint.md) | Uso completo del endpoint: local, SageMaker, TCs, curls |
+| [`docs/fact_transactions_README.md`](docs/fact_transactions_README.md) | Schema de `fact_transactions` |
+| [`changes/archive/2026-05-14-DATA-1138/plan.md`](changes/archive/2026-05-14-DATA-1138/plan.md) | Evaluación de métodos y decisión WMA-B |
+| [`changes/archive/2026-05-12-DATA-1136/plan.md`](changes/archive/2026-05-12-DATA-1136/plan.md) | Decisiones de filtrado y preparación de datos |
+| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | Convenciones, restricciones legales, casos edge |
 
-## Referencias externas
+---
 
-- **PRD Smart Budget** (Notion / Drive — David Segovia, Analytics).
-- **Modelo de datos Dough** (`base-de-datos-modelo.pdf` en Drive).
-- **Roadmap por fases** (PRD §11): Fase 0 (Reflejo) → 1 (Intención) → 2 (Contexto) → 3 (Coach).
+## Restricciones legales
 
-## Restricciones legales (recordatorio)
+- **No robo-adviser (SEC):** el sistema sugiere basado en historial — nunca recomienda qué hacer.
+- **UDAAP / CFPB:** `display_label` neutral y descriptivo. ❌ "Deberías gastar menos en X".
+- **Multi-tenancy:** toda operación filtrada por `idClient / idCompany / idMember`.
+- **Section 1033:** datos de Plaid/Finicity con reglas de portabilidad — no borrar sin revisión.
+- **PII:** nunca loguear montos individuales ni IDs sin hashear (SHA-256 + `SB_LOG_SALT`).
 
-- **No robo-adviser (SEC):** el sistema sugiere, no recomienda.
-- **UDAAP / CFPB:** lenguaje neutral, nunca prescriptivo.
-- **Multi-tenancy estricta:** toda query filtrada por `idClient/idCompany/idMember`.
-- **Section 1033:** los datos de Plaid/Finicity tienen reglas de portabilidad y retención.
+---
 
 ## Contacto
 

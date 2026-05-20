@@ -50,6 +50,12 @@ aws-credentials*
 .DS_Store
 Thumbs.db
 
+# ── Coverage ──────────────────────────────────────────────────────────────────
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # ── IDEs ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
@@ -60,3 +66,6 @@ Thumbs.db
 target/
 dbt_packages/
 logs/
+.worktrees/
+changes/*/.session-state.json
+changes/*/.execute-progress.log
