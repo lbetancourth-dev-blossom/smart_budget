@@ -215,22 +215,23 @@ def test_TC_T3_2_zero_fill_validates_idmember_uniqueness():
 # ---------------------------------------------------------------------------
 
 def test_TC_T3_3_zero_fill_preserves_idmember_in_grid():
-    """Arrange: df with 2 idmembers, 2 categories, 3 months (some empty).
+    """Arrange: df with 2 idmembers, each with 2 categories, 3 months (some empty).
     Act: zero_fill(df)
     Assert: "idmember" in result.columns
     Assert: len(result) == 2 * 2 * 3 (members × categories × months)
     """
-    # member 10: GROCERIES months Jan, Mar (Feb missing)
-    # member 20: DINING months Jan, Feb (Mar missing)
+    # member 10: GROCERIES months Jan+Mar, DINING months Jan+Feb
+    # member 20: GROCERIES months Jan+Feb, DINING months Feb+Mar
+    # All months: Jan, Feb, Mar (3 months span)
     df = pd.DataFrame({
-        "idclient": ["C1", "C1", "C1", "C1"],
-        "idcompany": ["CO1", "CO1", "CO1", "CO1"],
-        "idmember": [10, 10, 20, 20],
-        "idaccount": ["EXT2", "EXT2", "EXT22", "EXT22"],
-        "idcategory": ["5", "5", "9", "9"],
-        "defaultcategory": ["GROCERIES", "GROCERIES", "DINING", "DINING"],
-        "period_yyyymm": ["2025-01", "2025-03", "2025-01", "2025-02"],
-        "monthly_total": [100.0, 80.0, 50.0, 60.0],
+        "idclient": ["C1"] * 6,
+        "idcompany": ["CO1"] * 6,
+        "idmember": [10, 10, 10, 20, 20, 20],
+        "idaccount": ["EXT2", "EXT2", "EXT2", "EXT22", "EXT22", "EXT22"],
+        "idcategory": ["5", "9", "9", "5", "5", "9"],
+        "defaultcategory": ["GROCERIES", "DINING", "DINING", "GROCERIES", "GROCERIES", "DINING"],
+        "period_yyyymm": ["2025-01", "2025-01", "2025-02", "2025-01", "2025-02", "2025-03"],
+        "monthly_total": [100.0, 50.0, 60.0, 80.0, 90.0, 70.0],
     })
     result = zero_fill(df)
     assert "idmember" in result.columns
