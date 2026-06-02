@@ -50,6 +50,38 @@ REQUIRED_COLUMNS = {
     "deletedat",
 }
 
+# idmember is preferred but backward-compatible — warning only, not error
+OPTIONAL_RECOMMENDED_COLUMNS = {
+    "idmember",
+}
+
+
+def validate_columns(df: pd.DataFrame) -> tuple:
+    """Validate input DataFrame columns.
+
+    Returns:
+        (df, warnings): df is the (possibly modified) DataFrame,
+        warnings is a list of warning messages.
+
+    Raises:
+        ValueError: if any REQUIRED_COLUMNS are missing.
+    """
+    warnings_list = []
+
+    missing_required = REQUIRED_COLUMNS - set(df.columns)
+    if missing_required:
+        raise ValueError(
+            f"Input CSV is missing required columns: {sorted(missing_required)}"
+        )
+
+    # Check optional/recommended columns
+    if "idmember" not in df.columns:
+        msg = "idmember column missing — suggestions will not be grouped by member"
+        logger.warning(msg)
+        warnings_list.append(msg)
+
+    return df, warnings_list
+
 
 def _sha256_file(path: str) -> str:
     """Compute SHA-256 hash of a file for provenance logging."""
@@ -105,11 +137,8 @@ def main() -> None:
         # ------------------------------------------------------------------ #
         df_raw = pd.read_csv(input_path, dtype=str, keep_default_na=False)
 
-        missing_cols = REQUIRED_COLUMNS - set(df_raw.columns)
-        if missing_cols:
-            raise ValueError(
-                f"Input CSV is missing required columns: {sorted(missing_cols)}"
-            )
+        # Validate columns (raises for missing required, warns for optional)
+        df_raw, col_warnings = validate_columns(df_raw)
 
         if df_raw.empty:
             raise ValueError("Input CSV has 0 rows — nothing to process.")
