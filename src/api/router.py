@@ -190,7 +190,7 @@ def get_suggestion(
     amount_by_month = _build_amount_by_month(gated, reference_date, _LOOKBACK)
 
     return SuggestionResponse(
-        idaccount=r["idaccount"],
+        idaccount=r.get("idmember", r.get("idaccount")),
         idclient=r["idclient"],
         idcompany=r["idcompany"],
         defaultcategory=r["defaultcategory"],

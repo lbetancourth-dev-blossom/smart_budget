@@ -609,6 +609,8 @@ def test_TC4_golden_set_matches_output():
 
     # Load source data and apply gating
     data_path = pathlib.Path(__file__).parent.parent.parent / "data" / "dough" / "smart_budget_synthetic.csv"
+    if not data_path.exists():
+        pytest.skip(f"Synthetic data file not found: {data_path} — run generate_golden_set.py first")
     raw_df = pd.read_csv(data_path)
     prepared_df = apply_gating(raw_df, min_months=3)
 

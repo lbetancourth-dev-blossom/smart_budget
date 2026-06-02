@@ -189,7 +189,8 @@ def predict_fn(data: dict, model) -> dict:
     amount_by_month = _build_amount_by_month(gated, reference_date, _LOOKBACK)
 
     return {
-        "idaccount": r["idaccount"],
+        "idmember": r.get("idmember", r.get("idaccount")),
+        "idaccount": r.get("idmember", r.get("idaccount")),  # backward compat alias
         "idclient": r["idclient"],
         "idcompany": r["idcompany"],
         "defaultcategory": r["defaultcategory"],
@@ -231,6 +232,7 @@ def _null_response(
 ) -> dict:
     """Construye una respuesta null (Regla 3) con todos los campos del contrato."""
     return {
+        "idmember": idaccount,  # member identifier (same as idaccount in legacy mode)
         "idaccount": idaccount,
         "idclient": idclient,
         "idcompany": idcompany,
