@@ -246,6 +246,18 @@ def compute_budget_suggestions(
     # Security [AUTH-2]: include idclient + idcompany in groupby to prevent cross-tenant mixing.
     has_idmember = "idmember" in df.columns
     if has_idmember:
+        # AUTH-2 guard: same idmember integer must not appear with multiple idcompany values.
+        # This is a cross-tenant collision and must be rejected before any processing.
+        idmember_company_counts = df.groupby("idmember")["idcompany"].nunique()
+        collisions = idmember_company_counts[idmember_company_counts > 1]
+        if not collisions.empty:
+            collision_ids = sorted(collisions.index.tolist())
+            raise ValueError(
+                f"Cross-company idmember collision detected for idmember(s): {collision_ids}. "
+                "The same idmember integer appears with multiple idcompany values. "
+                "This is a security violation (AUTH-2). Ensure input data is scoped to a single company."
+            )
+
         collapse_keys = ["idclient", "idcompany", "idmember", "idcategory", "defaultcategory", "period_yyyymm"]
         df = df.groupby(collapse_keys, as_index=False)["monthly_total"].sum()
     # Legacy path: idmember not in df — keep idaccount-based grouping
