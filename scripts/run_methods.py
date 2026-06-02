@@ -143,6 +143,10 @@ def main(argv=None):
         lookback_months=args.lookback_months,
     )
 
+    # Warn if idmember is not in results (backward-compat check)
+    if results and "idmember" not in results[0]:
+        log.warning("run_methods.idmember_missing", hint="Results do not contain idmember — check pipeline input")
+
     # Step 4: serialize
     output_json = json.dumps(results, indent=2, ensure_ascii=False)
 
@@ -155,7 +159,8 @@ def main(argv=None):
 
     n_suggestions = sum(1 for r in results if r.get("suggested_amount") is not None)
     n_null = sum(1 for r in results if r.get("suggested_amount") is None)
-    log.info("run_methods.done", n_suggestions=n_suggestions, n_null_suggestions=n_null)
+    n_members = len(set(r.get("idmember", r.get("idaccount", "?")) for r in results))
+    log.info("run_methods.done", n_suggestions=n_suggestions, n_null_suggestions=n_null, n_members=n_members)
 
 
 if __name__ in ("__main__", "__test__"):
