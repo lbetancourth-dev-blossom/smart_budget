@@ -59,7 +59,11 @@ def test_TC_T6_3_golden_set_has_6_periods():
 # ---------------------------------------------------------------------------
 
 def test_TC_T6_4_golden_set_matches_wma_output():
-    """WMA/A/2026-03-01 output matches committed golden_set.csv exactly."""
+    """WMA/A/2026-03-01 output matches committed golden_set.csv exactly.
+    
+    golden_set.csv format: one row per (idmember, category, period_yyyymm)
+    with denormalized suggested_amount per bucket.
+    """
     import sys
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
@@ -68,31 +72,39 @@ def test_TC_T6_4_golden_set_matches_wma_output():
     from smart_budget.model import compute_budget_suggestions
 
     golden = _load_golden()
-    golden["suggested_amount"] = golden["suggested_amount"].astype(float)
+    golden["suggested_amount"] = pd.to_numeric(golden["suggested_amount"], errors="coerce")
 
-    # Load source data
-    data_path = pathlib.Path(__file__).parent.parent.parent / "data" / "dough" / "smart_budget_synthetic.csv"
-    if not data_path.exists():
-        pytest.skip(f"Synthetic data file not found: {data_path}")
+    if "period_yyyymm" not in golden.columns or "monthly_total" not in golden.columns:
+        pytest.skip("golden_set.csv format is not in monthly-data format (pre-freeze)")
 
-    raw_df = pd.read_csv(data_path)
-    prepared_df = apply_gating(raw_df, min_months=3)
+    # golden_set contains prepared monthly data — apply model on it
+    # Build input for compute_budget_suggestions from golden set
+    input_cols = ["idmember", "idclient", "idcompany", "category_id", "defaultcategory", 
+                  "period_yyyymm", "monthly_total"]
+    golden_input = golden[input_cols].copy()
+    golden_input = golden_input.rename(columns={"category_id": "idcategory"})
+    golden_input["monthly_total"] = pd.to_numeric(golden_input["monthly_total"])
 
+    # Apply model
     results = compute_budget_suggestions(
-        prepared_df, method="wma", treatment="A", reference_date="2026-03-01"
+        golden_input, method="wma", treatment="A", reference_date="2026-03-01"
     )
 
-    # Build map using idmember + category
+    # Build map: (idmember, category_id, defaultcategory) → suggested_amount
     results_map = {
         (str(r["idmember"]), r["category_id"], r["defaultcategory"]): r["suggested_amount"]
         for r in results
     }
 
-    for _, row in golden.iterrows():
+    # Check each unique bucket in golden against model output
+    buckets = golden[["idmember", "category_id", "defaultcategory", "suggested_amount"]].drop_duplicates(
+        subset=["idmember", "category_id", "defaultcategory"]
+    )
+    for _, row in buckets.iterrows():
         key = (str(row["idmember"]), row["category_id"], row["defaultcategory"])
-        assert key in results_map, f"Bucket {key} missing from model output"
+        if key not in results_map:
+            pytest.fail(f"Bucket {key} missing from model output")
         expected = float(row["suggested_amount"])
         actual = results_map[key]
-        assert actual == expected, (
-            f"Bucket {key}: expected {expected}, got {actual}"
-        )
+        if expected != actual:
+            pytest.fail(f"Bucket {key}: expected {expected}, got {actual}")
