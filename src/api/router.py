@@ -81,8 +81,9 @@ class MemberSuggestionResponse(BaseModel):
     idclient: str
     idcompany: str
     period_id: str
-    total_suggested: float
-    suggestions: List[SuggestionItem]
+    total_suggested: Optional[float]
+    suggestions: Optional[List[SuggestionItem]]
+    message: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -132,15 +133,16 @@ def get_suggestion(
         if not member_exists(idmember_val, base_dir):
             log.info("smart_budget.suggestion.not_found")
             raise HTTPException(status_code=404, detail="idmember not found")
-        # Miembro existe pero no tiene datos → 200 con suggestions vacío
+        # Miembro existe pero no tiene datos → 200 con null + mensaje
         log.info("smart_budget.suggestion.empty", reason="no_data_for_member")
         return MemberSuggestionResponse(
             idmember=str(idmember_val),
             idclient="",
             idcompany="",
             period_id=period_id_val,
-            total_suggested=0.0,
-            suggestions=[],
+            total_suggested=None,
+            suggestions=None,
+            message="No hay datos disponibles para este miembro.",
         )
 
     # Extraer idclient/idcompany del historial (primer registro)
@@ -157,8 +159,9 @@ def get_suggestion(
             idclient=idclient,
             idcompany=idcompany,
             period_id=period_id_val,
-            total_suggested=0.0,
-            suggestions=[],
+            total_suggested=None,
+            suggestions=None,
+            message="No hay suficiente historial para calcular sugerencias. Se requieren al menos 2 meses de datos.",
         )
 
     # Calcular sugerencias para todas las categorías que pasaron gating
@@ -177,8 +180,9 @@ def get_suggestion(
             idclient=idclient,
             idcompany=idcompany,
             period_id=period_id_val,
-            total_suggested=0.0,
-            suggestions=[],
+            total_suggested=None,
+            suggestions=None,
+            message="No hay suficiente historial para calcular sugerencias en el período solicitado.",
         )
 
     # Construir items por categoría
