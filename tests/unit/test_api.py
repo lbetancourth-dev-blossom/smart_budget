@@ -1,13 +1,18 @@
-"""tests/unit/test_api.py — Integration tests for FastAPI endpoint (DATA-1140).
+"""tests/unit/test_api.py — Tests para FastAPI endpoint Smart Budget (DATA-1179).
 
-Test contracts: TC-T2.1 – TC-T2.8
+Contrato actualizado: GET /smart-budget/suggestion?idmember=10&period_id=2026-05
+  → MemberSuggestionResponse con array de sugerencias por categoría + total_suggested
 
-Reglas de validación del endpoint:
-  Regla 1 (TC-T2.5): Si la cuenta no existe → 404 Not Found
-  Regla 2 (TC-T2.6): Si la categoría no existe (no reconocida) → 422 Unprocessable Entity
-  Regla 3 (TC-T2.7, TC-T2.8): Si la cuenta y categoría existen pero no hay datos → 200 null
-
-Uses TestClient from starlette (via fastapi.testclient).
+Casos de test:
+  TC-API-1: Happy path — miembro con historial → 200 con suggestions
+  TC-API-2: suggested_amount siempre >= 0.0
+  TC-API-3: basis.method == "wma" y basis.treatment == "B"
+  TC-API-4: Campo "explanation" NO debe aparecer en la respuesta
+  TC-API-5: Miembro no existe → 404
+  TC-API-6: period_id con formato inválido → 422
+  TC-API-7: Miembro existe pero sin datos → 200 suggestions vacío
+  TC-API-8: Historial < 2 meses (gating) → 200 suggestions vacío
+  TC-API-9: Respuesta incluye total_suggested y idmember (no idaccount)
 """
 from __future__ import annotations
 
@@ -20,18 +25,20 @@ from unittest.mock import patch
 # ---------------------------------------------------------------------------
 
 def _make_history_df(
-    idaccount="SYN001",
+    idmember=10,
+    idaccount="EXT2",
     defaultcategory="Groceries",
     idclient="1",
     idcompany="1",
     n_months=3,
     monthly_total=300.0,
 ):
-    """Construye un DataFrame de historial pre-agregado mínimo."""
+    """Construye un DataFrame de historial pre-agregado con grain idmember."""
     periods = [f"2026-0{i}" for i in range(2, 2 + n_months)]
     return pd.DataFrame({
         "idclient": [idclient] * n_months,
         "idcompany": [idcompany] * n_months,
+        "idmember": [idmember] * n_months,
         "idaccount": [idaccount] * n_months,
         "idcategory": ["5"] * n_months,
         "defaultcategory": [defaultcategory] * n_months,
@@ -50,102 +57,100 @@ def _make_client(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.1 — Happy path: cuenta con historial → 200 con todos los campos
+# TC-API-1 — Happy path: miembro con historial → 200 con array de sugerencias
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_happy_path_returns_200(tmp_path, monkeypatch):
     """
-    Arrange: load_history retorna 3 meses de historial para SYN001/Groceries.
-    Act: GET /smart-budget/suggestion con parámetros válidos.
+    Arrange: load_history_by_member retorna 3 meses de historial para idmember=10.
+    Act: GET /smart-budget/suggestion?idmember=10&period_id=2026-05.
     Assert: HTTP 200; respuesta contiene todos los campos del contrato.
     """
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history", return_value=history_df):
+    with patch("src.api.router.load_history_by_member", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
     body = response.json()
-    expected_keys = {
-        "idaccount", "idclient", "idcompany", "defaultcategory", "period_id",
-        "suggested_amount", "confidence", "basis", "display_label", "model_version",
-        "amount_by_month",
-    }
+    expected_keys = {"idmember", "idclient", "idcompany", "period_id", "total_suggested", "suggestions"}
     assert expected_keys.issubset(body.keys())
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.2 — suggested_amount siempre >= 0.0
+# TC-API-2 — suggested_amount siempre >= 0.0
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_suggested_amount_non_negative(tmp_path, monkeypatch):
     """
     Arrange: 3 meses de historial con gasto positivo.
     Act: GET /smart-budget/suggestion.
-    Assert: suggested_amount >= 0.0 (nunca negativo).
+    Assert: todo suggested_amount en suggestions >= 0.0 (nunca negativo).
     """
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df(monthly_total=250.0)
 
-    with patch("src.api.router.load_history", return_value=history_df):
+    with patch("src.api.router.load_history_by_member", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
     body = response.json()
-    if body["suggested_amount"] is not None:
-        assert body["suggested_amount"] >= 0.0
+    for item in body["suggestions"]:
+        if item["suggested_amount"] is not None:
+            assert item["suggested_amount"] >= 0.0
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.3 — basis.method == "wma" y basis.treatment == "B"
+# TC-API-3 — basis.method == "wma" y basis.treatment == "B"
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
     """
-    Arrange: cuenta con 3 meses de historial.
+    Arrange: idmember con 3 meses de historial.
     Act: GET /smart-budget/suggestion.
-    Assert: basis.method == "wma"; basis.treatment == "B".
+    Assert: basis.method == "wma"; basis.treatment == "B" en todas las sugerencias con basis.
     """
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history", return_value=history_df):
+    with patch("src.api.router.load_history_by_member", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
     body = response.json()
-    if body["basis"] is not None:
-        assert body["basis"]["method"] == "wma"
-        assert body["basis"]["treatment"] == "B"
+    for item in body["suggestions"]:
+        if item["basis"] is not None:
+            assert item["basis"]["method"] == "wma"
+            assert item["basis"]["treatment"] == "B"
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.4 — Campo "explanation" NO debe aparecer en la respuesta
+# TC-API-4 — Campo "explanation" NO debe aparecer en la respuesta
 # ---------------------------------------------------------------------------
 
 def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
     """
-    Arrange: cuenta con 3 meses de historial.
+    Arrange: idmember con 3 meses de historial.
     Act: GET /smart-budget/suggestion.
     Assert: "explanation" no está en el body de la respuesta.
     """
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history", return_value=history_df):
+    with patch("src.api.router.load_history_by_member", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
@@ -153,28 +158,22 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.5 — Regla 1: Cuenta no existe → 404
-#
-# Si el idaccount no está en ningún CSV de datos, el endpoint debe retornar
-# 404 Not Found. En uso normal (via enum) todos los accounts están en el CSV,
-# por lo que este caso se verifica vía mock.
+# TC-API-5 — Miembro no existe → 404
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_account_not_found_returns_404(tmp_path, monkeypatch):
+def test_get_suggestion_member_not_found_returns_404(tmp_path, monkeypatch):
     """
-    Regla 1: Si la cuenta no existe → Error 404.
-
-    Arrange: account_exists=False (la cuenta no tiene datos en ningún CSV).
-    Act: GET /smart-budget/suggestion.
-    Assert: HTTP 404 con mensaje de error.
+    Arrange: load_history_by_member vacío, member_exists=False.
+    Act: GET /smart-budget/suggestion?idmember=10.
+    Assert: HTTP 404 con mensaje "not found".
     """
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
-         patch("src.api.router.account_exists", return_value=False):
+    with patch("src.api.router.load_history_by_member", return_value=pd.DataFrame()), \
+         patch("src.api.router.member_exists", return_value=False):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 404
@@ -182,157 +181,96 @@ def test_get_suggestion_account_not_found_returns_404(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.6 — Regla 2: Categoría no existe (no reconocida) → 422
-#
-# Si defaultcategory no está en el catálogo de categorías válidas (enum),
-# FastAPI rechaza la request con 422 Unprocessable Entity antes de ejecutar
-# cualquier lógica de negocio.
+# TC-API-6 — period_id con formato inválido → 422
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_invalid_category_returns_422(tmp_path, monkeypatch):
+def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
     """
-    Regla 2: Si la categoría no existe → Error 422.
-
-    Arrange: defaultcategory con valor no listado en el enum Category.
-    Act: GET /smart-budget/suggestion?defaultcategory=CategoriaInexistente
+    Arrange: period_id con separador "/" en lugar de "-" (no es un PeriodId válido).
+    Act: GET /smart-budget/suggestion?period_id=2026/05.
     Assert: HTTP 422 (FastAPI enum validation).
     """
     tc = _make_client(tmp_path, monkeypatch)
 
     response = tc.get(
         "/smart-budget/suggestion",
-        params={
-            "idaccount": "SYN001",
-            "defaultcategory": "CategoriaInexistente",
-            "period_id": "2026-05",
-        },
+        params={"idmember": 10, "period_id": "2026/05"},
     )
 
     assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.7 — Regla 3a: Cuenta y categoría existen, sin datos para esa
-#            combinación → 200 null
-#
-# Ejemplo real: SYN001 existe en el CSV pero NO tiene datos de Groceries
-# (sus categorías son: Auto & Transport, Bills & Utilities,
-# Entertainment & Leisure, Home & Rent, Pets).
+# TC-API-7 — Miembro existe pero sin datos → 200 suggestions vacío
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_account_and_category_exist_no_data_returns_null(tmp_path, monkeypatch):
+def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatch):
     """
-    Regla 3a: Si cuenta y categoría existen pero sin datos para ese período → 200 null.
-
-    Arrange: account_exists=True (cuenta existe), load_history vacío
-             (no hay transacciones para esa combinación cuenta/categoría).
-    Act: GET /smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries
-    Assert: HTTP 200; suggested_amount=null; basis=null; confidence=null;
-            display_label indica historial insuficiente.
+    Arrange: load_history_by_member vacío, member_exists=True.
+    Act: GET /smart-budget/suggestion?idmember=10.
+    Assert: HTTP 200; suggestions=[]; total_suggested=0.0.
     """
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
-         patch("src.api.router.account_exists", return_value=True):
+    with patch("src.api.router.load_history_by_member", return_value=pd.DataFrame()), \
+         patch("src.api.router.member_exists", return_value=True):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["suggested_amount"] is None
-    assert body["confidence"] is None
-    assert body["basis"] is None
-    assert "historial" in body["display_label"].lower()
+    assert body["suggestions"] == []
+    assert body["total_suggested"] == 0.0
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.8 — Regla 3b: Cuenta y categoría existen, historial < 2 meses
-#            (gating) → 200 null
-#
-# Subvariante de Regla 3: hay datos pero son insuficientes para calcular
-# una sugerencia confiable (mínimo 2 meses requeridos).
+# TC-API-8 — Historial < 2 meses (gating) → 200 suggestions vacío
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_insufficient_months_returns_null(tmp_path, monkeypatch):
+def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch):
     """
-    Regla 3b: Si cuenta y categoría existen pero historial < 2 meses → 200 null.
-
-    Arrange: load_history retorna 1 mes → apply_gating(min_months=2) lo filtra.
+    Arrange: load_history_by_member retorna 1 mes → apply_gating(min_months=2) lo filtra.
     Act: GET /smart-budget/suggestion.
-    Assert: HTTP 200; suggested_amount=null; confidence=null; basis=null.
+    Assert: HTTP 200; suggestions=[]; total_suggested=0.0.
     """
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df(n_months=1)
 
-    with patch("src.api.router.load_history", return_value=history_df):
+    with patch("src.api.router.load_history_by_member", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"},
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["suggested_amount"] is None
-    assert body["confidence"] is None
-    assert body["basis"] is None
+    assert body["suggestions"] == []
+    assert body["total_suggested"] == 0.0
 
 
 # ---------------------------------------------------------------------------
-# TC-T2.9 — Regla 2: period_id con formato inválido → 422
+# TC-API-9 — Respuesta usa idmember (no idaccount) y tiene total_suggested
 # ---------------------------------------------------------------------------
 
-def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
+def test_get_suggestion_uses_idmember_not_idaccount(tmp_path, monkeypatch):
     """
-    Regla 2 (period_id): Si el formato de period_id es inválido → Error 422.
-
-    Arrange: period_id con separador "/" en lugar de "-" (no es un PeriodId válido).
-    Act: GET /smart-budget/suggestion?period_id=2026/05
-    Assert: HTTP 422 (FastAPI enum validation rechaza el valor).
+    Assert: la respuesta contiene "idmember" y no contiene "idaccount" a nivel raíz.
+    Assert: total_suggested es un número >= 0.0.
     """
     tc = _make_client(tmp_path, monkeypatch)
+    history_df = _make_history_df()
 
-    response = tc.get(
-        "/smart-budget/suggestion",
-        params={
-            "idaccount": "SYN001",
-            "defaultcategory": "Groceries",
-            "period_id": "2026/05",  # formato inválido — no está en PeriodId enum
-        },
-    )
-
-    assert response.status_code == 422
-
-
-# ---------------------------------------------------------------------------
-# TC-T2.10 — Regla 3: period_id válido pero sin datos en la ventana → 200 null
-# ---------------------------------------------------------------------------
-
-def test_get_suggestion_period_id_not_in_historical_window(tmp_path, monkeypatch):
-    """
-    Regla 3: period_id válido pero sin datos en la ventana histórica → 200 null.
-
-    Arrange: account_exists=True, load_history retorna DataFrame vacío
-             (simulando que no hay transacciones para ese período/categoría).
-    Act: GET /smart-budget/suggestion?period_id=2025-09 (período sin datos)
-    Assert: HTTP 200; suggested_amount=null; confidence=null; basis=null.
-    """
-    tc = _make_client(tmp_path, monkeypatch)
-
-    with patch("src.api.router.load_history", return_value=pd.DataFrame()), \
-         patch("src.api.router.account_exists", return_value=True):
+    with patch("src.api.router.load_history_by_member", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
-            params={
-                "idaccount": "SYN001",
-                "defaultcategory": "Groceries",
-                "period_id": "2025-09",  # período más antiguo del enum, sin datos
-            },
+            params={"idmember": 10, "period_id": "2026-05"},
         )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["suggested_amount"] is None
-    assert body["confidence"] is None
-    assert body["basis"] is None
+    assert "idmember" in body
+    assert "idaccount" not in body
+    assert isinstance(body["total_suggested"], (int, float))
+    assert body["total_suggested"] >= 0.0

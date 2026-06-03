@@ -1,9 +1,8 @@
-"""src/smart_budget/loader.py — Cargador unificado de datos para Smart Budget (DATA-1140).
+"""src/smart_budget/loader.py — Cargador unificado de datos para Smart Budget (DATA-1140/1179).
 
 Estrategia de fuentes:
-  - Si idaccount está en smart_budget_synthetic.csv → usar solo synthetic (pre-agregado).
-  - Si no → cargar test/test_internal.csv + test/test_external.csv, aplicar
-    filter_transactions(), normalización de signo OLB, aggregate_monthly().
+  - Por idmember (DATA-1179+): smart_budget_synthetic_idmember.csv (grain idmember).
+  - Por idaccount (legacy): smart_budget_synthetic.csv → synthetic, o raw CSVs.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from smart_budget.filters import filter_transactions
 logger = structlog.get_logger()
 
 _SYNTHETIC_CSV = "smart_budget_synthetic.csv"
+_SYNTHETIC_IDMEMBER_CSV = "smart_budget_synthetic_idmember.csv"
 _RAW_INTERNAL_CSV = "test/test_internal.csv"
 _RAW_EXTERNAL_CSV = "test/test_external.csv"
 
@@ -252,3 +252,95 @@ def load_history(
 
     log.info("loader.source", source="raw_csv")
     return _load_raw_for_account(idaccount, defaultcategory, base)
+
+
+# ---------------------------------------------------------------------------
+# Public API — grain idmember (DATA-1179)
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=None)
+def _synthetic_members(base_dir: Path) -> frozenset:
+    """
+    Retorna el conjunto de idmember presentes en smart_budget_synthetic_idmember.csv.
+    Cacheado por proceso — lectura única.
+
+    Args:
+        base_dir: Directorio raíz de datos.
+
+    Returns:
+        frozenset de idmember como strings.
+    """
+    path = base_dir / _SYNTHETIC_IDMEMBER_CSV
+    if not path.exists():
+        return frozenset()
+    df = pd.read_csv(path, usecols=["idmember"], dtype=str)
+    return frozenset(df["idmember"].dropna().unique())
+
+
+def member_exists(
+    idmember: "int | str",
+    base_dir: "str | Path" = "data/dough",
+) -> bool:
+    """
+    Verifica si idmember tiene datos en smart_budget_synthetic_idmember.csv.
+
+    Args:
+        idmember: ID numérico del miembro (int o str).
+        base_dir: Directorio raíz de datos.
+
+    Returns:
+        True si el miembro tiene al menos un registro.
+    """
+    base = Path(base_dir)
+    if not base.exists():
+        raise FileNotFoundError(f"base_dir no encontrado: {base}")
+    return str(idmember) in _synthetic_members(base)
+
+
+def load_history_by_member(
+    idmember: "int | str",
+    base_dir: "str | Path" = "data/dough",
+) -> pd.DataFrame:
+    """
+    Retorna el historial mensual pre-agregado para todas las categorías de un miembro.
+
+    Carga desde smart_budget_synthetic_idmember.csv filtrado por idmember.
+    El DataFrame resultante contiene todas las categorías del miembro, listo
+    para pasar a compute_budget_suggestions().
+
+    Args:
+        idmember: ID numérico del miembro.
+        base_dir: Directorio raíz de datos. Default: data/dough.
+
+    Returns:
+        DataFrame con columnas: idclient, idcompany, idmember, idaccount,
+        idcategory, defaultcategory, period_yyyymm, monthly_total.
+        Vacío si el miembro no tiene datos.
+
+    Raises:
+        FileNotFoundError: si base_dir no existe.
+    """
+    base = Path(base_dir)
+    if not base.exists():
+        raise FileNotFoundError(f"base_dir no encontrado: {base}")
+
+    path = base / _SYNTHETIC_IDMEMBER_CSV
+    if not path.exists():
+        logger.warning("loader.idmember_csv_missing", path=str(path))
+        return pd.DataFrame()
+
+    df = pd.read_csv(path, dtype=str)
+    df["monthly_total"] = pd.to_numeric(df["monthly_total"], errors="coerce").fillna(0.0)
+    df["idmember"] = pd.to_numeric(df["idmember"], errors="coerce")
+
+    mask = df["idmember"] == int(idmember)
+    result = df[mask].reset_index(drop=True)
+
+    logger.info(
+        "loader.idmember.loaded",
+        idmember=str(idmember),
+        rows=len(result),
+        categories=int(result["defaultcategory"].nunique()) if not result.empty else 0,
+    )
+    return result
