@@ -45,7 +45,7 @@ _DATA_PATH: Path = (
 
 
 def _build_idmember_enum(csv_path: Path) -> Type[str]:
-    """Construye un Enum con todos los idmember únicos del CSV activo.
+    """Construye un Enum con los 10 idmember que tienen más categorías en el CSV activo.
 
     Si el CSV no existe (entorno sin datos locales), retorna un Enum vacío
     para no romper el startup del servidor.
@@ -54,8 +54,17 @@ def _build_idmember_enum(csv_path: Path) -> Type[str]:
         logger.warning("router.idmember_enum.csv_missing", path=str(csv_path))
         return Enum("IdMember", {}, type=str)  # type: ignore[return-value]
 
-    df = pd.read_csv(csv_path, usecols=["idmember"], dtype=str)
-    members = sorted(df["idmember"].dropna().unique(), key=lambda x: x.zfill(20))
+    df = pd.read_csv(csv_path, usecols=["idmember", "defaultcategory"], dtype=str)
+    top10 = (
+        df.groupby("idmember")["defaultcategory"]
+        .nunique()
+        .reset_index(name="n_cats")
+        .query("n_cats > 1")
+        .sort_values(["n_cats", "idmember"], ascending=[False, True])
+        .head(10)["idmember"]
+        .tolist()
+    )
+    members = sorted(top10, key=lambda x: x.zfill(20))
     return Enum("IdMember", {f"m_{m}": m for m in members}, type=str)  # type: ignore[return-value]
 
 
