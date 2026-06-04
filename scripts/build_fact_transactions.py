@@ -29,7 +29,16 @@ import argparse
 import csv
 import os
 import pandas as pd
+import structlog
 from pathlib import Path
+
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.dev.ConsoleRenderer(),
+    ]
+)
+_logger = structlog.get_logger()
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,6 +69,163 @@ def load(folder: Path, table: str) -> pd.DataFrame:
     df = pd.read_csv(path, low_memory=False)
     df.columns = [c.lower() for c in df.columns]
     return df
+
+
+# ---------------------------------------------------------------------------
+# Canonical column list (shared by save_outputs and tests)
+# ---------------------------------------------------------------------------
+
+CANONICAL_COLS = [
+    "idtransaction", "idclient", "idcompany", "idmember", "idaccount", "idsubaccount",
+    "date", "amount", "currency", "originalamount", "timestamp",
+    "incomeexpenditure", "status", "description", "balance", "isenriched",
+    "enrichment", "enrichmentlogo", "enrichmentname", "enrichmentlocation",
+    "enrichmenturl", "defaultcategory", "idolbtransactioninfo",
+    "transactioncomplete", "note", "checknumber", "issplit",
+    "splitedtransactions", "createdat", "deletedat", "doughid",
+    "firstuploaded", "lastuploaded",
+]
+
+
+# ---------------------------------------------------------------------------
+# idmember resolution (in-memory, for --source s3 mode)
+# ---------------------------------------------------------------------------
+
+def _resolve_idmember(
+    fact: pd.DataFrame,
+    memberaccount: pd.DataFrame,
+    account: pd.DataFrame,
+) -> pd.DataFrame:
+    """Resolve idmember for each row in fact using a dual-join strategy.
+
+    - EXT accounts: strip "EXT" prefix from idaccount → numeric lookup in
+      memberaccount.idaccount → get memberaccount.idmember.
+    - OLB accounts (SUB/INT prefix): lookup fact.idaccount in
+      account.blossomdoughconsolidatedaccountid → get account.id →
+      lookup in memberaccount.idaccount → get idmember.
+    - No match → idmember = None.
+    - EXT strip that yields non-numeric → idmember = None + structlog warning.
+
+    Args:
+        fact: DataFrame with at minimum an "idaccount" column.
+        memberaccount: DataFrame with "idaccount" (int) and "idmember" columns.
+        account: DataFrame with "blossomdoughconsolidatedaccountid" and "id" columns.
+
+    Returns:
+        fact DataFrame with new "idmember" column added (or updated).
+    """
+    fact = fact.copy()
+    idmembers = [None] * len(fact)
+
+    # Build lookup maps for efficiency
+    # memberaccount: idaccount (int) → idmember
+    ma_map: dict = {}
+    if not memberaccount.empty and "idaccount" in memberaccount.columns and "idmember" in memberaccount.columns:
+        for _, row in memberaccount.iterrows():
+            try:
+                key = int(row["idaccount"])
+                ma_map[key] = row["idmember"]
+            except (ValueError, TypeError):
+                pass
+
+    # account: blossomdoughconsolidatedaccountid → id
+    acc_map: dict = {}
+    if not account.empty and "blossomdoughconsolidatedaccountid" in account.columns and "id" in account.columns:
+        for _, row in account.iterrows():
+            acc_map[str(row["blossomdoughconsolidatedaccountid"])] = row["id"]
+
+    for i, idaccount in enumerate(fact["idaccount"]):
+        idaccount_str = str(idaccount)
+
+        if idaccount_str.startswith("EXT"):
+            # EXT path: strip prefix, validate numeric
+            stripped = idaccount_str[3:]  # remove "EXT"
+            try:
+                numeric_id = int(stripped)
+            except (ValueError, TypeError):
+                _logger.warning(
+                    "invalid_ext_account",
+                    idaccount=idaccount_str,
+                    reason="non-numeric value after EXT strip",
+                )
+                idmembers[i] = None
+                continue
+            idmembers[i] = ma_map.get(numeric_id, None)
+        else:
+            # OLB path: lookup via blossomdoughconsolidatedaccountid
+            account_internal_id = acc_map.get(idaccount_str, None)
+            if account_internal_id is not None:
+                try:
+                    internal_int = int(account_internal_id)
+                    idmembers[i] = ma_map.get(internal_int, None)
+                except (ValueError, TypeError):
+                    idmembers[i] = None
+            else:
+                idmembers[i] = None
+
+    fact["idmember"] = idmembers
+    return fact
+
+
+# ---------------------------------------------------------------------------
+# idmember resolution (DB mode — uses parameterized queries)
+# ---------------------------------------------------------------------------
+
+def _resolve_idmember_db(conn, account_ids: list) -> dict:
+    """Resolve idmember for a list of account IDs using the DB connection.
+
+    Uses parameterized queries to prevent SQL injection.
+
+    Args:
+        conn: A psycopg2 connection (or compatible mock with .cursor()).
+        account_ids: List of account ID strings (mix of EXT/OLB).
+
+    Returns:
+        dict mapping account_id_str → idmember (int or None).
+    """
+    result: dict = {}
+    if not account_ids:
+        return result
+
+    ext_ids = []
+    olb_ids = []
+    for aid in account_ids:
+        aid_str = str(aid)
+        if aid_str.startswith("EXT"):
+            stripped = aid_str[3:]
+            try:
+                ext_ids.append(int(stripped))
+            except (ValueError, TypeError):
+                _logger.warning("invalid_ext_account", idaccount=aid_str)
+        else:
+            olb_ids.append(aid_str)
+
+    cursor = conn.cursor()
+
+    # EXT path — parameterized query
+    if ext_ids:
+        placeholders = ",".join(["%s"] * len(ext_ids))
+        query = f"SELECT idaccount, idmember FROM memberaccount WHERE idaccount IN ({placeholders})"
+        cursor.execute(query, ext_ids)
+        rows = cursor.fetchall()
+        for row in rows:
+            result[f"EXT{row[0]}"] = row[1]
+
+    # OLB path — parameterized query
+    if olb_ids:
+        placeholders = ",".join(["%s"] * len(olb_ids))
+        query = (
+            "SELECT a.blossomdoughconsolidatedaccountid, ma.idmember "
+            "FROM account a "
+            "JOIN memberaccount ma ON ma.idaccount = a.id "
+            f"WHERE a.blossomdoughconsolidatedaccountid IN ({placeholders})"
+        )
+        cursor.execute(query, olb_ids)
+        rows = cursor.fetchall()
+        for row in rows:
+            result[str(row[0])] = row[1]
+
+    return result
 
 
 def build_sub_transactions(olb: Path) -> pd.DataFrame:
@@ -400,19 +566,7 @@ def save_outputs(fact: pd.DataFrame):
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── Columnas canónicas en el orden exacto de la DB ────────────────────────
-    CANONICAL_COLS = [
-        "idtransaction", "idclient", "idcompany", "idaccount", "idsubaccount",
-        "date", "amount", "currency", "originalamount", "timestamp",
-        "incomeexpenditure", "status", "description", "balance", "isenriched",
-        "enrichment", "enrichmentlogo", "enrichmentname", "enrichmentlocation",
-        "enrichmenturl", "defaultcategory", "idolbtransactioninfo",
-        "transactioncomplete", "note", "checknumber", "issplit",
-        "splitedtransactions", "createdat", "deletedat", "doughid",
-        "firstuploaded", "lastuploaded",
-    ]
-
-    # Normalizar nombres de columna a lowercase
+    # ── Normalizar nombres de columna a lowercase ─────────────────────────────
     fact.columns = [c.lower() for c in fact.columns]
 
     # Agregar columnas faltantes como null

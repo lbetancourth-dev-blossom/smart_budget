@@ -250,8 +250,8 @@ def compute_metrics(
             n_null += 1
             continue
 
-        # Match by (idaccount, category_id, defaultcategory) → (idaccount, idcategory, defaultcategory)
-        key = (str(r["idaccount"]), str(r["category_id"]), str(r["defaultcategory"]))
+        # Match by (idmember, category_id, defaultcategory); fall back to idaccount for legacy data
+        key = (str(r.get("idmember", r.get("idaccount", "?"))), str(r["category_id"]), str(r["defaultcategory"]))
         if key not in actuals_lookup:
             # Silently skip unmatched suggestions
             continue

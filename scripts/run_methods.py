@@ -15,9 +15,11 @@ Output is a JSON list of suggestion dicts, written to --output or stdout.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sys
+import uuid
 
 # Allow running directly: python scripts/run_methods.py
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
@@ -118,6 +120,8 @@ def _normalize_reference_date(value: str) -> str:
 def main(argv=None):
     args = _parse_args(argv)
     reference_date = _normalize_reference_date(args.reference_date)
+    started_at = datetime.datetime.utcnow().isoformat() + "Z"
+    job_id = str(uuid.uuid4())
 
     log = logger.bind(
         method=args.method,
@@ -131,6 +135,11 @@ def main(argv=None):
     # Step 1: read CSV
     raw_df = pd.read_csv(args.input)
 
+    # Count null idmember rows before filtering
+    n_null_idmember = 0
+    if "idmember" in raw_df.columns:
+        n_null_idmember = int(raw_df["idmember"].isna().sum())
+
     # Step 2: apply gating (CSV is already aggregated monthly data)
     prepared_df = apply_gating(raw_df, min_months=args.min_months)
 
@@ -142,6 +151,10 @@ def main(argv=None):
         reference_date=reference_date,
         lookback_months=args.lookback_months,
     )
+
+    # Warn if idmember is not in results (backward-compat check)
+    if results and "idmember" not in results[0]:
+        log.warning("run_methods.idmember_missing", hint="Results do not contain idmember — check pipeline input")
 
     # Step 4: serialize
     output_json = json.dumps(results, indent=2, ensure_ascii=False)
@@ -155,7 +168,22 @@ def main(argv=None):
 
     n_suggestions = sum(1 for r in results if r.get("suggested_amount") is not None)
     n_null = sum(1 for r in results if r.get("suggested_amount") is None)
-    log.info("run_methods.done", n_suggestions=n_suggestions, n_null_suggestions=n_null)
+    n_members = len(set(r.get("idmember", r.get("idaccount", "?")) for r in results))
+    finished_at = datetime.datetime.utcnow().isoformat() + "Z"
+
+    log.info("run_methods.done", n_suggestions=n_suggestions, n_null_suggestions=n_null, n_members=n_members)
+
+    # Structured audit log for compliance/traceability (DATA-1179)
+    from smart_budget.model import _MODEL_VERSION  # noqa: PLC0415
+    log.info(
+        "run_methods.audit",
+        job_id=job_id,
+        model_version=_MODEL_VERSION,
+        n_members_processed=n_members,
+        n_null_idmember=n_null_idmember,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
 
 
 if __name__ in ("__main__", "__test__"):
