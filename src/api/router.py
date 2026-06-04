@@ -131,28 +131,20 @@ _ENV_CSV: dict[str, str] = {
     "alpha": "smart_budget_db_alpha.csv",
 }
 
-
-def _resolve_data_path(env: str) -> Path:
-    """Resuelve el path al CSV según el entorno solicitado."""
-    base_dir = Path(os.getenv("SMART_BUDGET_DATA_DIR", "data"))
-    csv_name = _ENV_CSV.get(env, _ENV_CSV["dev"])
-    return base_dir / csv_name
+# Entorno activo: se fija al arrancar el servidor con SB_ENV=dev|alpha
+_ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
+_DATA_PATH: Path = Path(os.getenv("SMART_BUDGET_DATA_DIR", "data")) / _ENV_CSV.get(_ACTIVE_ENV, _ENV_CSV["dev"])
 
 
 @router.get("/suggestion", response_model=MemberSuggestionResponse)
 def get_suggestion(
-    idmember: str = Query(..., description="ID del miembro (usar valores del Enum según entorno)"),
+    idmember: str = Query(..., description="ID del miembro"),
     period_id: PeriodId = Query(..., description="Mes a presupuestar (YYYY-MM)"),
-    env: Env = Query(Env.dev, description="Entorno de datos: dev o alpha"),
 ) -> MemberSuggestionResponse:
     """
     Retorna sugerencias de presupuesto para todas las categorías del miembro.
 
-    Usar **env=dev** para datos de blossom-dough-consolidated-dev (421 miembros).
-    Usar **env=alpha** para datos de blossom-dough-consolidated-alpha (2,929 miembros).
-
-    Miembros disponibles DEV: 15632, 6549, 6550, 6551, 6557, 6567, 6568, 700
-    Miembros disponibles ALPHA: 385664, 385947, 387379, 559576, 586384, 100007, 101558, 116474
+    El entorno de datos (dev/alpha) se configura al iniciar el servidor con `SB_ENV=dev|alpha`.
 
     Una sola llamada devuelve todas las categorías del miembro para el período.
     El historial considerado son los 3 meses ANTERIORES a period_id (lookback=3,
@@ -160,13 +152,12 @@ def get_suggestion(
     """
     idmember_val: str = str(idmember)
     period_id_val: str = period_id.value
-    env_val: str = env.value
 
     # reference_date = period_id − 1 mes (meses ANTERIORES al período a presupuestar)
     reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
-    data_path = _resolve_data_path(env_val)
-    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=env_val)
+    data_path = _DATA_PATH
+    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=_ACTIVE_ENV)
     log.info("smart_budget.suggestion.start")
 
     # Cargar historial de todas las categorías del miembro desde el CSV del entorno
