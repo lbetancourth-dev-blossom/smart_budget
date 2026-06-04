@@ -225,7 +225,7 @@ def get_suggestion(
             period_id=period_id_val,
             total_suggested=None,
             suggestions=None,
-            message="No hay suficiente historial para calcular sugerencias. Se requieren al menos 2 meses de datos.",
+            message="Not enough history to calculate suggestions. At least 2 months of data required.",
         )
 
     # Calcular sugerencias para todas las categorías que pasaron gating
@@ -246,7 +246,7 @@ def get_suggestion(
             period_id=period_id_val,
             total_suggested=None,
             suggestions=None,
-            message="No hay suficiente historial para calcular sugerencias en el período solicitado.",
+            message="Not enough history to calculate suggestions for the requested period.",
         )
 
     # Construir items por categoría

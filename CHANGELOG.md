@@ -1,5 +1,46 @@
 # Changelog
 
+## [DATA-1179] — Dataset real + grain idmember + entornos dev/alpha (2026-06, en progreso)
+
+Migración del pipeline de datos sintéticos a datos reales de la DB, cambio de grain de `idaccount` → `idmember`, y soporte de entornos dev/alpha en endpoint y SageMaker.
+
+### Dataset y extracción
+- Nuevo script `extract_smart_budget_monthly.py`: extrae datos reales desde `blossom-dough-consolidated` (dev o alpha) con query SQL directa — sin S3
+- **dev:** 26,417 filas · 421 miembros · 3 CUs · períodos 2022-09 → 2026-05
+- **alpha:** 195,923 filas · 2,929 miembros · 18 CUs · períodos 2019-06 → 2026-06
+- EDA completos para dev y alpha (`docs/guides/smart-budget/`)
+- Solo cuentas `INT`/`SUB` en la DB actual (no hay cuentas EXT replicadas)
+- Convención de signos OLB confirmada: amounts negativos → normalizados con `ABS()` en SQL
+- Status confirmado: `POSTED` (mayúsculas) en la DB de producción
+
+### Modelo — cambio de grain a idmember
+- `aggregator.py`: `aggregate_monthly` incluye `idmember` en groupby; `zero_fill` valida pares `(idmember, idclient, idcompany)`; `apply_gating` agrupa por `(idclient, idcompany, idmember)` — sin cross-tenant
+- `model.py`: `bucket_keys` → `idmember`; nuevo campo `total_suggested` (suma de suggested_amount no nulos por miembro, `0.0` si todos null); `_null_suggestion` reemplaza `idaccount` con `idmember`
+- `build_fact_transactions.py`: helper `_resolve_idmember` para join dual (EXT: strip "EXT" → memberaccount; OLB: via `blossomdoughconsolidatedaccountid` → account → memberaccount)
+- `run_smart_budget_prep.py`: `idmember` agregado a columnas requeridas (warning-only para backward compat)
+- `run_methods.py`: output incluye `idmember` + `total_suggested`
+
+### Endpoint FastAPI — entornos dev/alpha
+- Variable `SB_ENV=dev|alpha` selecciona el dataset activo al startup (resuelto en import time)
+- Fix `_build_amount_by_month`: usa `groupby().sum()` — resuelve crash por períodos duplicados en CSV real
+- Dropdown Swagger dinámico: top-10 miembros con sugerencias reales en >1 categoría (calculado al startup)
+- `loader.py`: parámetro `csv_name` opcional; comparación `idmember` siempre como string
+- Parámetro de entrada cambiado: `idaccount` + `defaultcategory` → `idmember` + `period_id`
+- Respuesta: todas las categorías del miembro en una llamada (antes: 1 categoría por request)
+
+### SageMaker
+- `inference.py` reescrito: nuevo contrato `{idmember, period_id}` → respuesta multi-categoría
+- CSV en tarball: `smart_budget_data.csv` (nombre canónico — env-agnostic)
+- Notebook actualizado: celda `ENV = "dev" | "alpha"` al inicio; S3 paths separados `v1/dev/model.tar.gz` y `v1/alpha/model.tar.gz`; endpoint names: `smart-budget-suggestion-endpoint-dev/alpha`
+
+### Tests
+- 133 passed, 4 skipped (vs 107 en Fase 0)
+- Nuevos: `test_build_fact_transactions_idmember.py`, `test_prep_idmember.py`, `test_multitenancy.py` (cross-member/cross-company leak)
+- `test_inference.py` reescrito: 8 TCs para contrato `{idmember, period_id}`
+- Golden set re-frozen: 3 miembros sintéticos, 6 períodos, schema con `idmember`
+
+---
+
 ## Fase 0 — El Reflejo (2025-12 → 2026-05)
 
 Implementación MVP del módulo Smart Budget para el producto Dough de Blossom.

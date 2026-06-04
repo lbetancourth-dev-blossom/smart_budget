@@ -122,7 +122,7 @@ def predict_fn(data: dict, model: str) -> dict:
     if gated.empty:
         return _empty_response(
             idmember, idclient, idcompany, period_id,
-            "No hay suficiente historial. Se requieren al menos 2 meses de datos.",
+            "Not enough history. At least 2 months of data required.",
         )
 
     results = compute_budget_suggestions(
@@ -136,7 +136,7 @@ def predict_fn(data: dict, model: str) -> dict:
     if not results:
         return _empty_response(
             idmember, idclient, idcompany, period_id,
-            "No hay suficiente historial para el período solicitado.",
+            "Not enough history for the requested period.",
         )
 
     suggestions = []
