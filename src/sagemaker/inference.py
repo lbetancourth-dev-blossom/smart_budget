@@ -25,7 +25,7 @@ from pathlib import Path
 
 _METHOD = "wma"
 _TREATMENT = "B"
-_LOOKBACK = 6
+_LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
 # Nombre del CSV bundleado en el tarball (igual en dev y alpha — se empaca con este nombre)

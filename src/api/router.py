@@ -75,7 +75,7 @@ def _build_idmember_enum(csv_path: Path) -> Type[str]:
                 continue
             suggestions = compute_budget_suggestions(
                 gated, method="wma", treatment="B",
-                reference_date=reference_date, lookback_months=6,
+                reference_date=reference_date, lookback_months=_LOOKBACK,
             )
             if len(suggestions) > 1:
                 qualified.append((str(mid), len(suggestions)))
