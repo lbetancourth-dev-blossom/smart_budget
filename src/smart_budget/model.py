@@ -153,23 +153,23 @@ def build_explanation(
     """
     if confidence is None:
         return (
-            "No hay datos históricos suficientes para calcular una sugerencia en esta categoría."
+            "Not enough historical data to calculate a suggestion for this category."
         )
     elif confidence == "high":
         return (
-            f"En {months_with_positive_spend} de tus últimos {months_analyzed} meses "
-            f"tuviste gastos en esta categoría. Esta sugerencia tiene alta confiabilidad."
+            f"In {months_with_positive_spend} of your last {months_analyzed} months "
+            f"you had spending in this category. This suggestion has high confidence."
         )
     elif confidence == "medium":
         return (
-            f"En {months_with_positive_spend} de tus últimos {months_analyzed} meses "
-            f"tuviste gastos en esta categoría. Esta sugerencia tiene confiabilidad media."
+            f"In {months_with_positive_spend} of your last {months_analyzed} months "
+            f"you had spending in this category. This suggestion has medium confidence."
         )
     else:  # "low"
         return (
-            f"En {months_with_positive_spend} de tus últimos {months_analyzed} meses "
-            f"tuviste gastos en esta categoría. Esta sugerencia está basada en pocos datos "
-            f"— revísala antes de confirmarla."
+            f"In {months_with_positive_spend} of your last {months_analyzed} months "
+            f"you had spending in this category. This suggestion is based on limited data "
+            f"— review it before confirming."
         )
 
 
@@ -177,10 +177,10 @@ def build_explanation(
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-_NULL_SUGGESTION_REASON = "No hay suficiente historial para calcular el monto sugerido"
-_NULL_DISPLAY_LABEL = "No hay suficiente historial para esta categoría"
+_NULL_SUGGESTION_REASON = "Not enough history to calculate a suggested amount"
+_NULL_DISPLAY_LABEL = "Not enough history for this category"
 _NULL_EXPLANATION = (
-    "No hay datos históricos suficientes para calcular una sugerencia en esta categoría."
+    "Not enough historical data to calculate a suggestion for this category."
 )
 _MODEL_VERSION = "fase0-v1"
 
@@ -363,7 +363,7 @@ def compute_budget_suggestions(
                 "treatment": treatment,
             },
             "confidence": confidence,
-            "display_label": f"Basado en tus últimos {months_analyzed} meses",
+            "display_label": f"Based on your last {months_analyzed} months",
             "explanation": explanation,
             "model_version": _MODEL_VERSION,
             "total_suggested": None,  # Will be set in Step 10

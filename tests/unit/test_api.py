@@ -249,7 +249,7 @@ def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch)
     body = response.json()
     assert body["suggestions"] is None
     assert body["total_suggested"] is None
-    assert "historial" in body["message"].lower()
+    assert "history" in body["message"].lower()
 
 
 # ---------------------------------------------------------------------------
