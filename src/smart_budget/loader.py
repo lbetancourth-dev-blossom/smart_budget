@@ -281,13 +281,15 @@ def _synthetic_members(base_dir: Path) -> frozenset:
 def member_exists(
     idmember: "int | str",
     base_dir: "str | Path" = "data/dough",
+    csv_name: "str | None" = None,
 ) -> bool:
     """
-    Verifica si idmember tiene datos en smart_budget_synthetic_idmember.csv.
+    Verifica si idmember tiene datos en el CSV de historial.
 
     Args:
-        idmember: ID numérico del miembro (int o str).
+        idmember: ID del miembro (int o str).
         base_dir: Directorio raíz de datos.
+        csv_name: Nombre del CSV a usar. Default: smart_budget_synthetic_idmember.csv.
 
     Returns:
         True si el miembro tiene al menos un registro.
@@ -295,23 +297,30 @@ def member_exists(
     base = Path(base_dir)
     if not base.exists():
         raise FileNotFoundError(f"base_dir no encontrado: {base}")
-    return str(idmember) in _synthetic_members(base)
+    effective_csv = csv_name or _SYNTHETIC_IDMEMBER_CSV
+    path = base / effective_csv
+    if not path.exists():
+        return False
+    df = pd.read_csv(path, usecols=["idmember"], dtype=str)
+    return str(idmember) in frozenset(df["idmember"].dropna().unique())
 
 
 def load_history_by_member(
     idmember: "int | str",
     base_dir: "str | Path" = "data/dough",
+    csv_name: "str | None" = None,
 ) -> pd.DataFrame:
     """
     Retorna el historial mensual pre-agregado para todas las categorías de un miembro.
 
-    Carga desde smart_budget_synthetic_idmember.csv filtrado por idmember.
-    El DataFrame resultante contiene todas las categorías del miembro, listo
-    para pasar a compute_budget_suggestions().
+    Carga desde el CSV indicado (o smart_budget_synthetic_idmember.csv por defecto)
+    filtrado por idmember. El DataFrame resultante contiene todas las categorías del
+    miembro, listo para pasar a compute_budget_suggestions().
 
     Args:
-        idmember: ID numérico del miembro.
+        idmember: ID del miembro (int o str).
         base_dir: Directorio raíz de datos. Default: data/dough.
+        csv_name: Nombre del CSV a usar. Default: smart_budget_synthetic_idmember.csv.
 
     Returns:
         DataFrame con columnas: idclient, idcompany, idmember, idaccount,
@@ -325,21 +334,23 @@ def load_history_by_member(
     if not base.exists():
         raise FileNotFoundError(f"base_dir no encontrado: {base}")
 
-    path = base / _SYNTHETIC_IDMEMBER_CSV
+    effective_csv = csv_name or _SYNTHETIC_IDMEMBER_CSV
+    path = base / effective_csv
     if not path.exists():
         logger.warning("loader.idmember_csv_missing", path=str(path))
         return pd.DataFrame()
 
     df = pd.read_csv(path, dtype=str)
     df["monthly_total"] = pd.to_numeric(df["monthly_total"], errors="coerce").fillna(0.0)
-    df["idmember"] = pd.to_numeric(df["idmember"], errors="coerce")
 
-    mask = df["idmember"] == int(idmember)
+    # Comparar como string para soportar IDs alfanuméricos (dev y alpha)
+    idmember_str = str(idmember)
+    mask = df["idmember"].astype(str) == idmember_str
     result = df[mask].reset_index(drop=True)
 
     logger.info(
         "loader.idmember.loaded",
-        idmember=str(idmember),
+        idmember=idmember_str,
         rows=len(result),
         categories=int(result["defaultcategory"].nunique()) if not result.empty else 0,
     )

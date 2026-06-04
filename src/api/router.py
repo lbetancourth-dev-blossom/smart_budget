@@ -1,10 +1,15 @@
 """src/api/router.py — FastAPI router para Smart Budget (DATA-1179).
 
 Contrato de endpoint (DATA-1179):
-  GET /smart-budget/suggestion?idmember=10&period_id=2026-03
+  GET /smart-budget/suggestion?idmember=10&period_id=2026-03&env=dev
     → 200: MemberSuggestionResponse con array de todas las categorías + total_suggested
     → 404: si idmember no existe
     → nunca 500 por falta de data — devolver suggestions vacío y log
+
+Parámetro env:
+  dev   → lee data/smart_budget_db_dev.csv   (blossom-dough-consolidated-dev)
+  alpha → lee data/smart_budget_db_alpha.csv (blossom-dough-consolidated-alpha)
+  Default: variable de entorno SMART_BUDGET_ENV (fallback: dev)
 """
 
 from __future__ import annotations
@@ -29,11 +34,34 @@ logger = structlog.get_logger()
 # Enums para Swagger UI — dropdowns en "Try it out"
 # ---------------------------------------------------------------------------
 
+# Entorno: determina qué CSV se carga
+class Env(str, Enum):
+    dev   = "dev"
+    alpha = "alpha"
 
-class IdMember(int, Enum):
-    member_10 = 10
-    member_20 = 20
-    member_30 = 30
+
+# Miembros de DEV (top 8 por historial)
+class IdMemberDev(str, Enum):
+    m_15632 = "15632"
+    m_6549  = "6549"
+    m_6550  = "6550"
+    m_6551  = "6551"
+    m_6557  = "6557"
+    m_6567  = "6567"
+    m_6568  = "6568"
+    m_700   = "700"
+
+
+# Miembros de ALPHA (top 8 por historial)
+class IdMemberAlpha(str, Enum):
+    m_385664 = "385664"
+    m_385947 = "385947"
+    m_387379 = "387379"
+    m_559576 = "559576"
+    m_586384 = "586384"
+    m_100007 = "100007"
+    m_101558 = "101558"
+    m_116474 = "116474"
 
 
 class PeriodId(str, Enum):
@@ -97,40 +125,60 @@ _TREATMENT = "B"
 _LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
+# Mapeo env → archivo CSV
+_ENV_CSV: dict[str, str] = {
+    "dev":   "smart_budget_db_dev.csv",
+    "alpha": "smart_budget_db_alpha.csv",
+}
+
+
+def _resolve_data_path(env: str) -> Path:
+    """Resuelve el path al CSV según el entorno solicitado."""
+    base_dir = Path(os.getenv("SMART_BUDGET_DATA_DIR", "data"))
+    csv_name = _ENV_CSV.get(env, _ENV_CSV["dev"])
+    return base_dir / csv_name
+
 
 @router.get("/suggestion", response_model=MemberSuggestionResponse)
 def get_suggestion(
-    idmember: IdMember = Query(..., description="ID numérico del miembro"),
+    idmember: str = Query(..., description="ID del miembro (usar valores del Enum según entorno)"),
     period_id: PeriodId = Query(..., description="Mes a presupuestar (YYYY-MM)"),
+    env: Env = Query(Env.dev, description="Entorno de datos: dev o alpha"),
 ) -> MemberSuggestionResponse:
     """
     Retorna sugerencias de presupuesto para todas las categorías del miembro.
+
+    Usar **env=dev** para datos de blossom-dough-consolidated-dev (421 miembros).
+    Usar **env=alpha** para datos de blossom-dough-consolidated-alpha (2,929 miembros).
+
+    Miembros disponibles DEV: 15632, 6549, 6550, 6551, 6557, 6567, 6568, 700
+    Miembros disponibles ALPHA: 385664, 385947, 387379, 559576, 586384, 100007, 101558, 116474
 
     Una sola llamada devuelve todas las categorías del miembro para el período.
     El historial considerado son los 3 meses ANTERIORES a period_id (lookback=3,
     reference_date = period_id − 1 mes). Method=WMA, Treatment=B (DATA-1138).
     """
-    idmember_val: int = idmember.value
+    idmember_val: str = str(idmember)
     period_id_val: str = period_id.value
+    env_val: str = env.value
 
     # reference_date = period_id − 1 mes (meses ANTERIORES al período a presupuestar)
     reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
-    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date)
+    data_path = _resolve_data_path(env_val)
+    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=env_val)
     log.info("smart_budget.suggestion.start")
 
-    base_dir = Path(os.getenv("SMART_BUDGET_DATA_DIR", "data/dough"))
-
-    # Cargar historial de todas las categorías del miembro
+    # Cargar historial de todas las categorías del miembro desde el CSV del entorno
     try:
-        history = load_history_by_member(idmember_val, base_dir)
+        history = load_history_by_member(idmember_val, data_path.parent, csv_name=data_path.name)
     except FileNotFoundError:
-        log.error("smart_budget.suggestion.base_dir_not_found", base_dir=str(base_dir))
-        raise HTTPException(status_code=500, detail="data directory not configured")
+        log.error("smart_budget.suggestion.base_dir_not_found", data_path=str(data_path))
+        raise HTTPException(status_code=500, detail=f"data file not found: {data_path.name}")
 
     # Miembro no existe → 404
     if history.empty:
-        if not member_exists(idmember_val, base_dir):
+        if not member_exists(idmember_val, data_path.parent, csv_name=data_path.name):
             log.info("smart_budget.suggestion.not_found")
             raise HTTPException(status_code=404, detail="idmember not found")
         # Miembro existe pero no tiene datos → 200 con null + mensaje
