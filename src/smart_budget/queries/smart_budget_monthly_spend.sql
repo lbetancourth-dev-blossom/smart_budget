@@ -36,17 +36,23 @@ WITH base AS (
         ft.idcompany,
         bma.idmember,
         ft.idaccount,
-        -- idcategory como proxy del nombre de categoría (sin catálogo en Fase 0)
-        ft.defaultcategory                                AS idcategory,
+        -- idcategory resuelto desde el catálogo: defaultcategory.name → defaultcategory.id
+        -- NULL si la categoría no existe en el catálogo (ej: categorías legacy sin mapeo)
+        dc.id                                             AS idcategory,
         ft.defaultcategory,
         TO_CHAR(ft.date, 'YYYY-MM')                       AS period_yyyymm,
-        -- ABS() normaliza el signo: OLB guarda gastos negativos, EXT positivos.
-        -- SUM() acumula el gasto neto del mes (reembolsos reducen el total).
-        -- GREATEST(0, ...) clampea a 0 si los reembolsos superan los gastos.
+        -- ABS() normaliza el signo: OLB/OTHER guardan gastos como NEGATIVOS (confirmado).
+        -- SUM() acumula el gasto neto del mes.
+        -- GREATEST(0, ...) clampea a 0 si el neto resultara negativo.
         GREATEST(0, SUM(ABS(ft.amount::NUMERIC)))         AS monthly_total
     FROM public.fact_transactions ft
     JOIN public.bridge_member_account bma
         ON ft.idaccount::TEXT = bma.idaccount::TEXT
+    -- LEFT JOIN para no perder transacciones cuya categoría no esté en el catálogo
+    -- (categorías huérfanas: loguear warning en pipeline, no excluir silenciosamente)
+    LEFT JOIN public.defaultcategory dc
+        ON UPPER(dc.name) = UPPER(ft.defaultcategory)
+        AND dc.deletedat IS NULL
     WHERE
         -- Regla 1: excluir soft-deleted
         ft.deletedat IS NULL
@@ -87,6 +93,7 @@ WITH base AS (
         ft.idcompany,
         bma.idmember,
         ft.idaccount,
+        dc.id,
         ft.defaultcategory,
         period_yyyymm
 )
