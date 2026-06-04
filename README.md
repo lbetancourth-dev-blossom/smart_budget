@@ -6,7 +6,9 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 
 ---
 
-## Estado — Fase 0 ✅ COMPLETADA
+## Estado
+
+### Fase 0 ✅ COMPLETADA
 
 | Ticket | Descripción | Estado |
 |--------|-------------|--------|
@@ -16,7 +18,15 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 | `DATA-1139` | Datasets de test por fuente (internal / external) | ✅ Merged |
 | `DATA-1140` | Endpoint on-demand de inferencia (FastAPI + SageMaker) | ✅ Merged |
 
-**Fase 0 cerrada el 2026-05-19.** Todos los tickets en `development`. Cobertura de tests: ~93% (107/108 passing).
+**Fase 0 cerrada el 2026-05-19.** Todos los tickets en `development`. Cobertura de tests: ~93%.
+
+### En progreso
+
+| Ticket | Descripción | Estado |
+|--------|-------------|--------|
+| `DATA-1179` | Dataset real desde DB + grain `idmember` + entornos dev/alpha | 🔄 Draft PR #12 |
+
+**DATA-1179:** migra el modelo de `idaccount` → `idmember`, extrae datos reales desde la DB (dev: 26,417 filas / 421 miembros · alpha: 195,923 filas / 2,929 miembros), y agrega soporte de entornos `dev`/`alpha` en el endpoint y SageMaker. Cobertura de tests: **133 passed, 4 skipped**.
 
 ---
 
@@ -55,79 +65,93 @@ Repositorio del módulo **Smart Budget** del producto **Dough** (PFM de Blossom 
 ## Arquitectura del pipeline
 
 ```
-S3 silver (DOUGH + OLB)
+DB blossom-dough-consolidated (dev | alpha)
     │
-    ├── scripts/build_fact_transactions.py   → data/dough/fact_transactions.csv (1.4M filas)
+    ├── scripts/extract_smart_budget_monthly.py  → data/dough/smart_budget_db_{env}.csv
+    │        SQL directo a la DB — sin S3
     │
-    ├── scripts/run_smart_budget_prep.py     → data/dough/smart_budget_prep.csv (agregado mensual)
+    ├── scripts/build_fact_transactions.py       → data/dough/fact_transactions.csv (referencia histórica)
+    │        (legado — usado para análisis sobre fact_transactions completa)
     │
-    ├── scripts/extract_test_datasets.py     → data/dough/test/test_internal.csv
-    │                                           data/dough/test/test_external.csv
+    ├── scripts/run_smart_budget_prep.py         → data/dough/smart_budget_prep.csv (agregado mensual)
     │
-    └── scripts/run_methods.py               → data/dough/results/<method>_results.csv
-         │   method=wma, treatment=B, lookback=3
+    └── scripts/run_methods.py                   → data/dough/results/<method>_results.csv
+         │   method=wma, treatment=B, lookback=3 (grain: idmember)
          ▼
-    GET /smart-budget/suggestion             ← src/api/router.py (FastAPI)
-    ▲                                        ← src/api/inference.py (SageMaker)
+    SB_ENV=dev|alpha
+    GET /smart-budget/suggestion?idmember=...&period_id=YYYY-MM   ← src/api/router.py (FastAPI)
+    ▲                                                              ← src/sagemaker/inference.py (SageMaker)
     │
     Dough UI
 ```
 
-**Modo de operación:** batch pre-calculado. El endpoint carga CSVs locales y ejecuta el pipeline completo por request (Fase 0). En Fase 1 se materializa en tabla `smartBudgetSuggestion`.
+**Modo de operación:** batch pre-calculado. El endpoint lee el CSV del entorno activo (`SB_ENV`) y ejecuta el pipeline por request. En Fase 1 se materializa en tabla `smartBudgetSuggestion`.
 
 ---
 
-## Endpoint de inferencia (DATA-1140)
+## Endpoint de inferencia
 
 ### Local (FastAPI)
 
 ```bash
-# Activar entorno y levantar servidor
-source .venv/bin/activate
-uvicorn src.main:app --reload --port 8000
+# Entorno dev (top-10 miembros con sugerencias reales)
+SB_ENV=dev PYTHONPATH=$(pwd)/src uvicorn src.main:app --reload --port 8000
 
-# Swagger UI: http://localhost:8000/docs
+# Entorno alpha
+SB_ENV=alpha PYTHONPATH=$(pwd)/src uvicorn src.main:app --reload --port 8001
+
+# Swagger UI: http://localhost:8000/docs  (dropdown con miembros reales del entorno)
 ```
 
 ```bash
-# Happy path
-curl "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food+%26+Dining&period_id=2026-05"
+# Sugerencias para un miembro (todas las categorías)
+curl "http://localhost:8000/smart-budget/suggestion?idmember=11393&period_id=2026-05"
 
-# Sin datos suficientes → suggested_amount: null (HTTP 200)
-curl "http://localhost:8000/smart-budget/suggestion?idaccount=SYN001&defaultcategory=Groceries&period_id=2026-05"
+# Sin datos suficientes → suggested_amount: null en cada categoría (HTTP 200)
+curl "http://localhost:8000/smart-budget/suggestion?idmember=30&period_id=2026-05"
 ```
+
+La variable `SB_ENV` selecciona el dataset activo al startup:
+
+| `SB_ENV` | Dataset | Miembros | Período |
+|----------|---------|----------|---------|
+| `dev` | `smart_budget_db_dev.csv` | 421 | 2022-09 → 2026-05 |
+| `alpha` | `smart_budget_db_alpha.csv` | 2,929 | 2019-06 → 2026-06 |
 
 ### Reglas de validación del endpoint
 
 | # | Condición | Respuesta |
 |---|-----------|-----------|
-| 1 | `idaccount` no existe en los datos | HTTP 404 — `idaccount not found` |
-| 2 | `defaultcategory` no válida (no es una categoría del catálogo) | HTTP 422 — `invalid category` |
-| 3 | Cuenta y categoría existen, sin datos para el período | HTTP 200 — `suggested_amount: null` |
+| 1 | `idmember` no existe en los datos | HTTP 404 — `member not found` |
+| 2 | Sin datos suficientes para una categoría | HTTP 200 — `suggested_amount: null` |
+| 3 | `period_id` con formato inválido | HTTP 422 — validation error |
 
 ### Respuesta de ejemplo
 
 ```json
 {
-  "idaccount": "EXT2",
-  "defaultcategory": "Food & Dining",
+  "idmember": "11393",
   "period_id": "2026-05",
-  "suggested_amount": 184.32,
-  "confidence": "high",
-  "display_label": "Basado en tus últimos 3 meses",
-  "basis": {
-    "months_analyzed": 3,
-    "data_points": 3,
-    "method": "wma",
-    "treatment": "B",
-    "period_range": "2026-02~2026-04"
-  },
-  "amount_by_month": {
-    "2026-04": 210.50,
-    "2026-03": 175.00,
-    "2026-02": 163.20
-  },
-  "model_version": "fase0-v1"
+  "idclient": "1",
+  "idcompany": "1",
+  "total_suggested": 285.50,
+  "suggestions": [
+    {
+      "category_id": "cat_groceries",
+      "defaultcategory": "Groceries",
+      "suggested_amount": 185.50,
+      "confidence": "medium",
+      "display_label": "Basado en tus últimos 3 meses",
+      "basis": {
+        "months_analyzed": 3,
+        "data_points": 3,
+        "method": "wma",
+        "treatment": "B",
+        "period_range": "2026-02~2026-04"
+      },
+      "model_version": "fase0-v1"
+    }
+  ]
 }
 ```
 
@@ -159,48 +183,55 @@ smart_budget/
 ├── src/
 │   ├── main.py                          Entrypoint FastAPI
 │   ├── api/
-│   │   ├── router.py                    Endpoint GET /smart-budget/suggestion
-│   │   ├── inference.py                 Handler SageMaker (misma lógica, protocolo SKLearnModel)
+│   │   ├── router.py                    Endpoint GET /smart-budget/suggestion (SB_ENV dev|alpha)
 │   │   └── CLAUDE.md
 │   ├── sagemaker/
-│   │   ├── inference.py                 Script SageMaker (model_fn/input_fn/predict_fn/output_fn)
+│   │   ├── inference.py                 Script SageMaker — contrato {idmember, period_id}
 │   │   ├── requirements.txt             Pins para imagen sklearn:1.2-1
 │   │   └── CLAUDE.md
 │   └── smart_budget/
-│       ├── filters.py                   5 reglas de filtrado
-│       ├── aggregator.py                Agregación mensual + zero-fill + gating
-│       ├── model.py                     4 métodos + compute_budget_suggestions()
-│       └── loader.py                    Carga CSVs (synthetic → raw fallback)
+│       ├── filters.py                   6 reglas de filtrado obligatorias
+│       ├── aggregator.py                Agregación mensual (grain: idmember) + zero-fill + gating
+│       ├── model.py                     4 métodos + compute_budget_suggestions() + total_suggested
+│       └── loader.py                    Carga CSVs con parámetro csv_name opcional
 ├── scripts/
-│   ├── extract_datalake_to_csv.py       Extrae S3 datalake → CSV local
-│   ├── build_fact_transactions.py       Construye fact_transactions (OLB + DOUGH)
+│   ├── extract_datalake_to_csv.py       (legado) Extrae S3 datalake → CSV local
+│   ├── extract_smart_budget_monthly.py  Extrae datos reales desde DB → smart_budget_db_{env}.csv
+│   ├── build_fact_transactions.py       Construye fact_transactions (OLB + DOUGH) con _resolve_idmember
 │   ├── run_smart_budget_prep.py         Pipeline: filtra, agrega, gating
 │   ├── extract_test_datasets.py         Split por fuente: internal / external
 │   ├── eval_runner.py                   Evaluación comparativa de métodos
-│   ├── run_methods.py                   CLI de ejecución del modelo
+│   ├── run_methods.py                   CLI del modelo (output: idmember + total_suggested)
 │   └── generate_synthetic_dataset.py   Dataset sintético para pruebas
+├── notebooks/
+│   └── smart_budget_sagemaker_endpoint.ipynb  Deploy SageMaker dev/alpha (cambiar celda ENV)
 ├── tests/
 │   ├── unit/
 │   │   ├── test_filters.py
 │   │   ├── test_aggregator.py
 │   │   ├── test_model.py
-│   │   ├── test_api.py                  10 TCs — reglas de validación del endpoint
-│   │   └── test_eval_runner.py
+│   │   ├── test_api.py
+│   │   ├── test_loader.py
+│   │   ├── test_inference.py            8 TCs — contrato {idmember, period_id}
+│   │   ├── test_build_fact_transactions_idmember.py
+│   │   ├── test_prep_idmember.py
+│   │   ├── test_multitenancy.py         Cross-member y cross-company leak detection
+│   │   └── test_golden_set.py
 │   └── fixtures/
-│       ├── golden_set.csv
-│       └── smart_budget_synthetic.csv
+│       ├── golden_set.csv               Re-frozen con schema idmember (3 miembros, 6 períodos)
+│       └── generate_golden_set.py       Script generador del golden set
 ├── data/                               Gitignored — nunca commitear
 │   └── dough/
+│       ├── smart_budget_db_dev.csv      Dataset real dev (26,417 filas, 421 miembros)
+│       ├── smart_budget_db_alpha.csv    Dataset real alpha (195,923 filas, 2,929 miembros)
 │       ├── fact_transactions.csv        Tabla central: 1.4M filas
-│       ├── smart_budget_prep.csv        Datos listos para el modelo
-│       ├── smart_budget_synthetic.csv   Dataset sintético (11 cuentas, 15 categorías)
-│       └── test/
-│           ├── test_internal.csv        Transacciones OLB (SUB/LOAN)
-│           └── test_external.csv        Transacciones Plaid/Finicity (EXT)
+│       └── smart_budget_prep.csv        Datos listos para el modelo
 └── docs/
     ├── fact_transactions_README.md
     ├── guides/smart-budget/
-    │   └── How-To-Use-Endpoint.md      Uso del endpoint local y SageMaker
+    │   ├── How-To-Use-Endpoint.md
+    │   ├── EDA-Smart-Budget-Dataset-Dev.md    EDA dataset dev
+    │   └── EDA-Smart-Budget-Dataset-Alpha.md  EDA dataset alpha
     └── codemap/
 ```
 
@@ -218,18 +249,20 @@ pip install -e .
 # 2. Tests
 pytest tests/ -v --cov=src/smart_budget --cov-report=term-missing
 
-# 3. Datos (requiere AWS SSO)
+# 3. Datos reales desde DB (requiere AWS SSO)
 aws sso login --profile blossom-dev
-python scripts/extract_datalake_to_csv.py --source DOUGH --env dev
-python scripts/build_fact_transactions.py --env dev
-python scripts/run_smart_budget_prep.py --input data/dough/fact_transactions.csv
+python scripts/extract_smart_budget_monthly.py --env dev   # → data/dough/smart_budget_db_dev.csv
+python scripts/extract_smart_budget_monthly.py --env alpha # → data/dough/smart_budget_db_alpha.csv
 
 # 4. Ejecutar modelo
 python scripts/run_methods.py --method wma --treatment B --lookback-months 3 --reference-date 2026-05
 
 # 5. Endpoint local
-uvicorn src.main:app --reload --port 8000
-# → http://localhost:8000/docs
+SB_ENV=dev PYTHONPATH=$(pwd)/src uvicorn src.main:app --reload --port 8000
+# → http://localhost:8000/docs  (dropdown con miembros reales del entorno dev)
+
+# SageMaker — ver notebooks/smart_budget_sagemaker_endpoint.ipynb
+# Cambiar ENV = "dev" | "alpha" en la celda 2 del notebook
 ```
 
 ---
