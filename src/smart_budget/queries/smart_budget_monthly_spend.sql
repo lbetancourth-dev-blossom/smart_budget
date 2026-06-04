@@ -13,6 +13,15 @@
 --   5. SUB%: status IS NULL OR NOT IN (PENDING, HOLD)
 --   6. EXT%: UPPER(status) = 'POSTED'
 --
+-- Convención de signos confirmada en blossom-dough-consolidated-alpha:
+--   OLB (SUB%)  / OTHER: expenditure = NEGATIVO (débito OLB = negativo).
+--                        → ABS() normaliza a positivo antes de sumar.
+--   EXT (EXT%)          : no hay filas EXT en esta DB (datos solo OLB/OTHER).
+--                        Si en el futuro aparecen, ABS() es no-op sobre positivos.
+--   income negativos    : ajustes/créditos internos — excluidos por el filtro
+--                        incomeexpenditure = 'expenditure'.
+--   GREATEST(0, ...)    : clamp de seguridad para el caso en que SUM sea negativo.
+--
 -- Resolución de idmember:
 --   fact_transactions.idaccount → bridge_member_account.idaccount → idmember
 --
@@ -28,11 +37,13 @@ WITH base AS (
         bma.idmember,
         ft.idaccount,
         -- idcategory como proxy del nombre de categoría (sin catálogo en Fase 0)
-        ft.defaultcategory                       AS idcategory,
+        ft.defaultcategory                                AS idcategory,
         ft.defaultcategory,
-        TO_CHAR(ft.date, 'YYYY-MM')              AS period_yyyymm,
-        -- Suma neta clampeada a 0: reembolsos no generan montos negativos
-        GREATEST(0, SUM(ft.amount::NUMERIC))     AS monthly_total
+        TO_CHAR(ft.date, 'YYYY-MM')                       AS period_yyyymm,
+        -- ABS() normaliza el signo: OLB guarda gastos negativos, EXT positivos.
+        -- SUM() acumula el gasto neto del mes (reembolsos reducen el total).
+        -- GREATEST(0, ...) clampea a 0 si los reembolsos superan los gastos.
+        GREATEST(0, SUM(ABS(ft.amount::NUMERIC)))         AS monthly_total
     FROM public.fact_transactions ft
     JOIN public.bridge_member_account bma
         ON ft.idaccount::TEXT = bma.idaccount::TEXT
