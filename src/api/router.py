@@ -302,7 +302,8 @@ def _build_amount_by_month(
     mask = (history["period_yyyymm"] >= str(window_start)) & (
         history["period_yyyymm"] <= str(ref)
     )
-    window = history.loc[mask].set_index("period_yyyymm")["monthly_total"]
+    # Agrupar por período para evitar duplicados en el CSV real (idaccount múltiple)
+    window = history.loc[mask].groupby("period_yyyymm")["monthly_total"].sum()
 
     all_periods = [str(window_start + i) for i in range(lookback_months)]
     return {p: round(float(window.get(p, 0.0)), 2) for p in all_periods}
