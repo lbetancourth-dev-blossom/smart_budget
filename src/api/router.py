@@ -1,15 +1,13 @@
 """src/api/router.py — FastAPI router para Smart Budget (DATA-1179).
 
 Contrato de endpoint (DATA-1179):
-  GET /smart-budget/suggestion?idmember=10&period_id=2026-03&env=dev
+  GET /smart-budget/suggestion?idmember=15632&period_id=2026-02
     → 200: MemberSuggestionResponse con array de todas las categorías + total_suggested
     → 404: si idmember no existe
     → nunca 500 por falta de data — devolver suggestions vacío y log
 
-Parámetro env:
-  dev   → lee data/smart_budget_db_dev.csv   (blossom-dough-consolidated-dev)
-  alpha → lee data/smart_budget_db_alpha.csv (blossom-dough-consolidated-alpha)
-  Default: variable de entorno SMART_BUDGET_ENV (fallback: dev)
+Entorno activo: variable de entorno SB_ENV=dev|alpha (default: dev).
+El idmember en Swagger muestra la lista completa de miembros del entorno activo.
 """
 
 from __future__ import annotations
@@ -17,7 +15,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Type
 
 import pandas as pd
 import structlog
@@ -34,34 +32,35 @@ logger = structlog.get_logger()
 # Enums para Swagger UI — dropdowns en "Try it out"
 # ---------------------------------------------------------------------------
 
-# Entorno: determina qué CSV se carga
-class Env(str, Enum):
-    dev   = "dev"
-    alpha = "alpha"
+_ENV_CSV: dict[str, str] = {
+    "dev":   "smart_budget_db_dev.csv",
+    "alpha": "smart_budget_db_alpha.csv",
+}
+
+_ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
+_DATA_PATH: Path = (
+    Path(os.getenv("SMART_BUDGET_DATA_DIR", "data"))
+    / _ENV_CSV.get(_ACTIVE_ENV, _ENV_CSV["dev"])
+)
 
 
-# Miembros de DEV (top 8 por historial)
-class IdMemberDev(str, Enum):
-    m_15632 = "15632"
-    m_6549  = "6549"
-    m_6550  = "6550"
-    m_6551  = "6551"
-    m_6557  = "6557"
-    m_6567  = "6567"
-    m_6568  = "6568"
-    m_700   = "700"
+def _build_idmember_enum(csv_path: Path) -> Type[str]:
+    """Construye un Enum con todos los idmember únicos del CSV activo.
+
+    Si el CSV no existe (entorno sin datos locales), retorna un Enum vacío
+    para no romper el startup del servidor.
+    """
+    if not csv_path.exists():
+        logger.warning("router.idmember_enum.csv_missing", path=str(csv_path))
+        return Enum("IdMember", {}, type=str)  # type: ignore[return-value]
+
+    df = pd.read_csv(csv_path, usecols=["idmember"], dtype=str)
+    members = sorted(df["idmember"].dropna().unique(), key=lambda x: x.zfill(20))
+    return Enum("IdMember", {f"m_{m}": m for m in members}, type=str)  # type: ignore[return-value]
 
 
-# Miembros de ALPHA (top 8 por historial)
-class IdMemberAlpha(str, Enum):
-    m_385664 = "385664"
-    m_385947 = "385947"
-    m_387379 = "387379"
-    m_559576 = "559576"
-    m_586384 = "586384"
-    m_100007 = "100007"
-    m_101558 = "101558"
-    m_116474 = "116474"
+# Enum dinámico: se construye una sola vez al arrancar el servidor
+IdMember: Type[str] = _build_idmember_enum(_DATA_PATH)
 
 
 class PeriodId(str, Enum):
@@ -125,26 +124,21 @@ _TREATMENT = "B"
 _LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
-# Mapeo env → archivo CSV
-_ENV_CSV: dict[str, str] = {
-    "dev":   "smart_budget_db_dev.csv",
-    "alpha": "smart_budget_db_alpha.csv",
-}
-
-# Entorno activo: se fija al arrancar el servidor con SB_ENV=dev|alpha
-_ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
-_DATA_PATH: Path = Path(os.getenv("SMART_BUDGET_DATA_DIR", "data")) / _ENV_CSV.get(_ACTIVE_ENV, _ENV_CSV["dev"])
-
 
 @router.get("/suggestion", response_model=MemberSuggestionResponse)
 def get_suggestion(
-    idmember: str = Query(..., description="ID del miembro"),
+    idmember: str = Query(
+        ...,
+        description="ID del miembro",
+        json_schema_extra={"enum": [e.value for e in IdMember]},
+    ),
     period_id: PeriodId = Query(..., description="Mes a presupuestar (YYYY-MM)"),
 ) -> MemberSuggestionResponse:
     """
     Retorna sugerencias de presupuesto para todas las categorías del miembro.
 
     El entorno de datos (dev/alpha) se configura al iniciar el servidor con `SB_ENV=dev|alpha`.
+    La lista de idmember disponibles en este Swagger corresponde al entorno activo.
 
     Una sola llamada devuelve todas las categorías del miembro para el período.
     El historial considerado son los 3 meses ANTERIORES a period_id (lookback=3,
@@ -156,20 +150,19 @@ def get_suggestion(
     # reference_date = period_id − 1 mes (meses ANTERIORES al período a presupuestar)
     reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
-    data_path = _DATA_PATH
     log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=_ACTIVE_ENV)
     log.info("smart_budget.suggestion.start")
 
     # Cargar historial de todas las categorías del miembro desde el CSV del entorno
     try:
-        history = load_history_by_member(idmember_val, data_path.parent, csv_name=data_path.name)
+        history = load_history_by_member(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name)
     except FileNotFoundError:
-        log.error("smart_budget.suggestion.base_dir_not_found", data_path=str(data_path))
-        raise HTTPException(status_code=500, detail=f"data file not found: {data_path.name}")
+        log.error("smart_budget.suggestion.base_dir_not_found", data_path=str(_DATA_PATH))
+        raise HTTPException(status_code=500, detail=f"data file not found: {_DATA_PATH.name}")
 
     # Miembro no existe → 404
     if history.empty:
-        if not member_exists(idmember_val, data_path.parent, csv_name=data_path.name):
+        if not member_exists(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name):
             log.info("smart_budget.suggestion.not_found")
             raise HTTPException(status_code=404, detail="idmember not found")
         # Miembro existe pero no tiene datos → 200 con null + mensaje
