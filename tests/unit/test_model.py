@@ -206,7 +206,7 @@ def test_explanation_high():
     result = build_explanation(6, 4, "high")
     assert "4" in result
     assert "6" in result
-    assert "alta confiabilidad" in result
+    assert "high confidence" in result
 
 
 def test_explanation_medium():
@@ -214,7 +214,7 @@ def test_explanation_medium():
     result = build_explanation(4, 3, "medium")
     assert "3" in result
     assert "4" in result
-    assert "confiabilidad media" in result
+    assert "medium confidence" in result
 
 
 def test_explanation_low():
@@ -222,13 +222,13 @@ def test_explanation_low():
     result = build_explanation(3, 2, "low")
     assert "2" in result
     assert "3" in result
-    assert "pocos datos" in result
+    assert "limited data" in result
 
 
 def test_explanation_none():
     from smart_budget.model import build_explanation
     result = build_explanation(0, 0, None)
-    assert result == "No hay datos históricos suficientes para calcular una sugerencia en esta categoría."
+    assert result == "Not enough historical data to calculate a suggestion for this category."
 
 
 def test_explanation_no_prescriptive_words():
@@ -337,8 +337,8 @@ def test_TC4_4_treatment_B_all_zeros_returns_null():
     assert len(results) == 1
     r = results[0]
     assert r["suggested_amount"] is None
-    assert r["reason"] == "No hay suficiente historial para calcular el monto sugerido"
-    assert r["display_label"] == "No hay suficiente historial para esta categoría"
+    assert r["reason"] == "Not enough history to calculate a suggested amount"
+    assert r["display_label"] == "Not enough history for this category"
 
 
 def test_TC4_5_confidence_levels():
