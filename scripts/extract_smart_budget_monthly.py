@@ -70,6 +70,10 @@ if not _DATA_CHECK.exists() and (ROOT.parent.parent / "data" / "dough").exists()
 OUT_DIR = ROOT / "data" / "dough"
 OUT_FILE_DEFAULT = "smart_budget_synthetic_idmember.csv"
 
+# Ruta al archivo SQL (relativa al repo, no al script)
+QUERIES_DIR = Path(__file__).resolve().parent.parent / "src" / "smart_budget" / "queries"
+QUERY_FILE = QUERIES_DIR / "smart_budget_monthly_spend.sql"
+
 # Columnas de salida (alineadas con loader.py → load_history_by_member)
 OUTPUT_COLS = [
     "idclient",
@@ -84,10 +88,11 @@ OUTPUT_COLS = [
 
 # ── Query principal ───────────────────────────────────────────────────────────
 
-# Filtra y agrega en un solo pasada sobre fact_transactions.
+# Filtra y agrega en una sola pasada sobre fact_transactions.
 # La resolución de idmember se hace via JOIN con bridge_member_account.
 # Sumas negativas (netas) se clampean a 0 (GREATEST) para evitar negativos.
-SMART_BUDGET_QUERY = """
+# La query canónica vive en src/smart_budget/queries/smart_budget_monthly_spend.sql.
+_RAW_QUERY = """
 WITH base AS (
     SELECT
         ft.idclient,
@@ -156,12 +161,34 @@ ORDER BY idmember, period_yyyymm, defaultcategory
 
 
 def _build_query(months: int | None) -> str:
-    """Construye la query final con filtro de ventana temporal opcional."""
+    """Construye la query final con filtro de ventana temporal opcional.
+
+    Carga la query canónica desde src/smart_budget/queries/smart_budget_monthly_spend.sql
+    cuando el archivo existe. Si no, usa el fallback embebido (_RAW_QUERY).
+    """
+    # Leer desde el archivo SQL canónico cuando esté disponible
+    if QUERY_FILE.exists():
+        template = QUERY_FILE.read_text(encoding="utf-8")
+        # Remover comentarios de cabecera (líneas que empiezan con '--' antes del WITH)
+        lines = template.splitlines()
+        sql_start = next((i for i, l in enumerate(lines) if l.strip().upper().startswith("WITH")), 0)
+        template = "\n".join(lines[sql_start:])
+        # Desactivar el WHERE de ventana temporal si existe comentado, o activarlo si se pide
+        if months and months > 0:
+            template = template.replace(
+                "-- WHERE period_yyyymm >= TO_CHAR(NOW() - INTERVAL 'N months', 'YYYY-MM')",
+                f"WHERE period_yyyymm >= TO_CHAR(NOW() - INTERVAL '{months} months', 'YYYY-MM')",
+            )
+        _logger.debug("_build_query.using_file", path=str(QUERY_FILE))
+        return template
+
+    # Fallback embebido (en caso de que el archivo SQL no esté disponible)
+    _logger.warning("_build_query.sql_file_missing", path=str(QUERY_FILE), fallback="embedded query")
     if months and months > 0:
         where_clause = f"WHERE period_yyyymm >= TO_CHAR(NOW() - INTERVAL '{months} months', 'YYYY-MM')"
     else:
         where_clause = ""
-    return SMART_BUDGET_QUERY.format(schema=DB_SCHEMA, where_clause=where_clause)
+    return _RAW_QUERY.format(schema=DB_SCHEMA, where_clause=where_clause)
 
 
 # ── Extracción ────────────────────────────────────────────────────────────────
