@@ -45,26 +45,49 @@ _DATA_PATH: Path = (
 
 
 def _build_idmember_enum(csv_path: Path) -> Type[str]:
-    """Construye un Enum con los 10 idmember que tienen más categorías en el CSV activo.
+    """Construye un Enum con hasta 10 idmember que reciben sugerencias en >1 categoría.
 
-    Si el CSV no existe (entorno sin datos locales), retorna un Enum vacío
-    para no romper el startup del servidor.
+    Corre el modelo (wma, lookback=6) sobre todos los miembros del CSV activo y
+    retiene solo los que producen sugerencias reales en más de 1 categoría.
+    Se ordena por número de categorías sugeridas (descendente) y se limita a 10.
+
+    Si el CSV no existe, retorna un Enum vacío sin romper el startup.
     """
     if not csv_path.exists():
         logger.warning("router.idmember_enum.csv_missing", path=str(csv_path))
         return Enum("IdMember", {}, type=str)  # type: ignore[return-value]
 
-    df = pd.read_csv(csv_path, usecols=["idmember", "defaultcategory"], dtype=str)
-    top10 = (
-        df.groupby("idmember")["defaultcategory"]
-        .nunique()
-        .reset_index(name="n_cats")
-        .query("n_cats > 1")
-        .sort_values(["n_cats", "idmember"], ascending=[False, True])
-        .head(10)["idmember"]
-        .tolist()
+    from smart_budget.aggregator import apply_gating
+    from smart_budget.model import compute_budget_suggestions
+
+    df = pd.read_csv(csv_path, dtype=str)
+    df["monthly_total"] = pd.to_numeric(df["monthly_total"], errors="coerce").fillna(0.0)
+
+    # Usar el último período disponible como referencia para maximizar cobertura
+    last_period = df["period_yyyymm"].dropna().max()
+    reference_date = str(pd.Period(last_period, freq="M") - 1)
+
+    qualified: list[tuple[str, int]] = []
+    for mid, grp in df.groupby("idmember"):
+        try:
+            gated = apply_gating(grp, min_months=2)
+            if gated.empty:
+                continue
+            suggestions = compute_budget_suggestions(
+                gated, method="wma", treatment="B",
+                reference_date=reference_date, lookback_months=6,
+            )
+            if len(suggestions) > 1:
+                qualified.append((str(mid), len(suggestions)))
+        except Exception:
+            continue  # saltar miembros con colisiones multi-company u otros errores
+
+    qualified.sort(key=lambda x: (-x[1], x[0].zfill(20)))
+    members = [m for m, _ in qualified[:10]]
+    logger.info(
+        "router.idmember_enum.built",
+        env=_ACTIVE_ENV, total_qualified=len(qualified), selected=len(members),
     )
-    members = sorted(top10, key=lambda x: x.zfill(20))
     return Enum("IdMember", {f"m_{m}": m for m in members}, type=str)  # type: ignore[return-value]
 
 
