@@ -41,7 +41,7 @@ La query completa está en `src/smart_budget/queries/smart_budget_monthly_spend.
 | `idclient` | int | ID del cliente Blossom (siempre `1` en esta DB) | Multi-tenancy layer 1 |
 | `idcompany` | int | ID de la Credit Union | 18 CUs distintas en el dataset |
 | `idmember` | string | ID del miembro (usuario) | 2,929 miembros únicos |
-| `idaccount` | string | ID de la cuenta (prefijo `INT` = OLB) | Puede haber múltiples cuentas por miembro |
+| `idaccount` | string | ID de la cuenta (prefijo `INT` = OLB) | **Solo prefijo `INT`** en esta DB (195,923 filas). No hay cuentas `EXT` (Plaid/Finicity). Puede haber múltiples cuentas por miembro |
 | `idcategory` | string | Identificador de categoría | ⚠️ En esta DB es igual al nombre (`defaultcategory`). No hay ID numérico disponible en `fact_transactions`. |
 | `defaultcategory` | string | Nombre de la categoría de gasto | 12 categorías únicas |
 | `period_yyyymm` | string | Mes calendario del gasto (formato `YYYY-MM`) | Rango 2019-06 → 2026-06 |
@@ -187,6 +187,25 @@ print(df.describe())
 print(df.groupby("defaultcategory")["monthly_total"].agg(["count","median","mean"]))
 EOF
 ```
+
+---
+
+## 11. Prefijos de idaccount
+
+| Prefijo | Filas | % | Origen | Descripción |
+|---|---|---|---|---|
+| `INT` | 195,923 | 100% | OLB (Core Banking) | Cuentas nativas del core bancario de la CU |
+
+**Observación:** Esta DB contiene **exclusivamente cuentas OLB** (prefijo `INT`). No existen cuentas externas `EXT` (Plaid/Finicity) en `blossom-dough-consolidated-alpha`. Esto es consistente con los resultados del diagnóstico de signos (§9): todos los `expenditure` son negativos — convención OLB.
+
+Prefijos posibles en otros entornos (según `filters.py` y `build_fact_transactions.py`):
+
+| Prefijo | Origen | Convención de signo |
+|---|---|---|
+| `INT` | OLB — cuentas internas del core | Gasto = **negativo** → `ABS()` obligatorio |
+| `SUB` | OLB — subcuentas (granularidad fina) | Gasto = **negativo** → `ABS()` obligatorio |
+| `EXT` | Plaid / Finicity — cuentas externas | Gasto = **positivo** → `ABS()` es no-op |
+| `LOAN` | OLB — pagos de préstamos | **Excluidos** del modelo (no son gasto discrecional) |
 
 ---
 
