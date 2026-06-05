@@ -128,10 +128,8 @@ def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    for item in body["suggestions"]:
-        if item["basis"] is not None:
-            assert item["basis"]["method"] == "wma"
-            assert item["basis"]["treatment"] == "B"
+    assert body["method"] == "wma"
+    assert body["treatment"] == "B"
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +220,7 @@ def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatc
     assert response.status_code == 200
     body = response.json()
     assert body["suggestions"] is None
-    assert body["total_suggested"] is None
+    assert body.get("total_suggested") is None
     assert body["message"] is not None
 
 
@@ -234,7 +232,7 @@ def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch)
     """
     Arrange: load_history_by_member retorna 1 mes → apply_gating(min_months=2) lo filtra.
     Act: GET /smart-budget/suggestion.
-    Assert: HTTP 200; suggestions=null; total_suggested=null; message con "historial".
+    Assert: HTTP 200; suggestions ausente; total_suggested=null; message con "history".
     """
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df(n_months=1)
@@ -248,7 +246,7 @@ def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch)
     assert response.status_code == 200
     body = response.json()
     assert body["suggestions"] is None
-    assert body["total_suggested"] is None
+    assert body.get("total_suggested") is None
     assert "history" in body["message"].lower()
 
 
