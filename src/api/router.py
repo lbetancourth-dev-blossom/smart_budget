@@ -1,11 +1,21 @@
-"""src/api/router.py — FastAPI router para Smart Budget (DATA-1140)."""
+"""src/api/router.py — FastAPI router para Smart Budget (DATA-1179).
+
+Contrato de endpoint (DATA-1179):
+  GET /smart-budget/suggestion?idmember=15632&period_id=2026-02
+    → 200: MemberSuggestionResponse con array de todas las categorías + total_suggested
+    → 404: si idmember no existe
+    → nunca 500 por falta de data — devolver suggestions vacío y log
+
+Entorno activo: variable de entorno SB_ENV=dev|alpha (default: dev).
+El idmember en Swagger muestra la lista completa de miembros del entorno activo.
+"""
 
 from __future__ import annotations
 
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Type
 
 import pandas as pd
 import structlog
@@ -13,7 +23,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from smart_budget.aggregator import apply_gating
-from smart_budget.loader import account_exists, load_history
+from smart_budget.loader import member_exists, load_history_by_member
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
@@ -22,37 +32,30 @@ logger = structlog.get_logger()
 # Enums para Swagger UI — dropdowns en "Try it out"
 # ---------------------------------------------------------------------------
 
+_ENV_CSV: dict[str, str] = {
+    "dev":   "smart_budget_db_dev.csv",
+    "alpha": "smart_budget_db_alpha.csv",
+}
 
-class IdAccount(str, Enum):
-    EXT2 = "EXT2"
-    EXT22 = "EXT22"
-    INT31880 = "INT31880"
-    SYN001 = "SYN001"
-    SYN002 = "SYN002"
-    SYN003 = "SYN003"
-    SYN004 = "SYN004"
-    SYN005 = "SYN005"
-    SYN006 = "SYN006"
-    SYN007 = "SYN007"
-    SYN008 = "SYN008"
+_ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
+_DATA_PATH: Path = (
+    Path(os.getenv("SMART_BUDGET_DATA_DIR", "data"))
+    / _ENV_CSV.get(_ACTIVE_ENV, _ENV_CSV["dev"])
+)
 
 
-class Category(str, Enum):
-    auto_transport = "Auto & Transport"
-    bills_utilities = "Bills & Utilities"
-    education = "Education"
-    entertainment = "Entertainment & Leisure"
-    food_dining = "Food & Dining"
-    gas = "Gas"
-    gifts_donations = "Gifts & Donations"
-    groceries = "Groceries"
-    health_fitness = "Health & Fitness"
-    home_rent = "Home & Rent"
-    personal_care = "Personal Care & Beauty"
-    pets = "Pets"
-    shopping = "Shopping"
-    subscriptions = "Subscriptions"
-    travel = "Travel & Trips"
+# Top-10 miembros con sugerencias en >1 categoría (pre-calculado por entorno, lb=3)
+_IDMEMBERS_DEV = [
+    "11393", "9646", "10859", "11001", "11066",
+    "12274", "12277", "12284", "12288", "12290",
+]
+_IDMEMBERS_ALPHA = [
+    "385462", "593079", "385543", "385664", "586384",
+    "388104", "388305", "385952", "538781", "385640",
+]
+
+_members = _IDMEMBERS_ALPHA if _ACTIVE_ENV == "alpha" else _IDMEMBERS_DEV
+IdMember: Type[str] = Enum("IdMember", {f"m_{m}": m for m in _members}, type=str)  # type: ignore[return-value]
 
 
 class PeriodId(str, Enum):
@@ -67,6 +70,7 @@ class PeriodId(str, Enum):
     p_2026_05 = "2026-05"
     p_2026_06 = "2026-06"
 
+
 # ---------------------------------------------------------------------------
 # Schemas de respuesta
 # ---------------------------------------------------------------------------
@@ -74,23 +78,32 @@ class PeriodId(str, Enum):
 
 class BasisDetail(BaseModel):
     months_analyzed: int
-    months_with_positive_spend: int
+    months_with_spend: int
     period_range: str
-    method: str
-    treatment: str
 
 
-class SuggestionResponse(BaseModel):
-    idaccount: str
-    idclient: str
-    idcompany: str
+class SuggestionItem(BaseModel):
+    """Sugerencia de presupuesto para una categoría individual."""
+
     defaultcategory: str
-    period_id: str
     suggested_amount: Optional[float]
     confidence: Optional[str]
     basis: Optional[BasisDetail]
     amount_by_month: Optional[dict[str, Optional[float]]]
-    display_label: str
+
+
+class MemberSuggestionResponse(BaseModel):
+    """Respuesta completa del endpoint: sugerencias de todas las categorías para un miembro."""
+
+    idmember: str
+    idclient: str
+    idcompany: str
+    period_id: str
+    total_suggested: Optional[float]
+    suggestions: Optional[List[SuggestionItem]]
+    message: str
+    method: str
+    treatment: str
     model_version: str
 
 
@@ -106,61 +119,84 @@ _LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
 
-@router.get("/suggestion", response_model=SuggestionResponse)
+@router.get("/suggestion", response_model=MemberSuggestionResponse)
 def get_suggestion(
-    idaccount: IdAccount = Query(..., description="ID de la cuenta del miembro"),
-    defaultcategory: Category = Query(..., description="Categoría a presupuestar"),
+    idmember: str = Query(
+        ...,
+        description="ID del miembro",
+        json_schema_extra={"enum": [e.value for e in IdMember]},
+    ),
     period_id: PeriodId = Query(..., description="Mes a presupuestar (YYYY-MM)"),
-) -> SuggestionResponse:
+) -> MemberSuggestionResponse:
     """
-    Calcula y retorna una sugerencia de presupuesto mensual on-demand.
+    Retorna sugerencias de presupuesto para todas las categorías del miembro.
 
-    El historial considerado es los 3 meses ANTERIORES a period_id (lookback=3,
+    El entorno de datos (dev/alpha) se configura al iniciar el servidor con `SB_ENV=dev|alpha`.
+    La lista de idmember disponibles en este Swagger corresponde al entorno activo.
+
+    Una sola llamada devuelve todas las categorías del miembro para el período.
+    El historial considerado son los 3 meses ANTERIORES a period_id (lookback=3,
     reference_date = period_id − 1 mes). Method=WMA, Treatment=B (DATA-1138).
     """
-    # Extraer valores string de los enums
-    idaccount_val: str = idaccount.value
-    defaultcategory_val: str = defaultcategory.value
+    idmember_val: str = str(idmember)
     period_id_val: str = period_id.value
 
-    # Paso 2: reference_date = period_id − 1 mes
+    # reference_date = period_id − 1 mes (meses ANTERIORES al período a presupuestar)
     reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
-    log = logger.bind(
-        idaccount=idaccount_val,
-        defaultcategory=defaultcategory_val,
-        period_id=period_id_val,
-        reference_date=reference_date,
-    )
+    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=_ACTIVE_ENV)
     log.info("smart_budget.suggestion.start")
 
-    # Paso 3: base_dir desde env var
-    base_dir = Path(os.getenv("SMART_BUDGET_DATA_DIR", "data/dough"))
-
-    # Paso 4: cargar historial
+    # Cargar historial de todas las categorías del miembro desde el CSV del entorno
     try:
-        history = load_history(idaccount_val, defaultcategory_val, base_dir)
+        history = load_history_by_member(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name)
     except FileNotFoundError:
-        log.error("smart_budget.suggestion.base_dir_not_found", base_dir=str(base_dir))
-        raise HTTPException(status_code=500, detail="data directory not configured")
+        log.error("smart_budget.suggestion.base_dir_not_found", data_path=str(_DATA_PATH))
+        raise HTTPException(status_code=500, detail=f"data file not found: {_DATA_PATH.name}")
 
-    # Paso 5: distinguir cuenta inexistente (404) de categoría sin datos (200 null)
+    # Miembro no existe → 404
     if history.empty:
-        if not account_exists(idaccount_val, base_dir):
+        if not member_exists(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name):
             log.info("smart_budget.suggestion.not_found")
-            raise HTTPException(status_code=404, detail="idaccount not found")
-        # Cuenta existe pero no tiene datos para esta categoría → 200 null
-        log.info("smart_budget.suggestion.null", reason="no_data_for_category")
-        return _build_null_response(idaccount_val, pd.DataFrame(), defaultcategory_val, period_id_val)
+            raise HTTPException(status_code=404, detail="idmember not found")
+        # Miembro existe pero no tiene datos → 200 con null + mensaje
+        log.info("smart_budget.suggestion.empty", reason="no_data_for_member")
+        return MemberSuggestionResponse(
+            idmember=str(idmember_val),
+            idclient="",
+            idcompany="",
+            period_id=period_id_val,
+            method=_METHOD,
+            treatment=_TREATMENT,
+            model_version="fase0-v1",
+            total_suggested=None,
+            suggestions=None,
+            message="No hay datos disponibles para este miembro.",
+        )
 
-    # Paso 6: gating — mínimo 2 meses con gasto positivo
+    # Extraer idclient/idcompany del historial (primer registro)
+    idclient = str(history["idclient"].iloc[0])
+    idcompany = str(history["idcompany"].iloc[0])
+
+    # Gating: filtrar categorías con datos insuficientes
     gated = apply_gating(history, min_months=_MIN_MONTHS_GATING)
 
     if gated.empty:
-        log.info("smart_budget.suggestion.null", reason="gating_min_months")
-        return _build_null_response(idaccount_val, history, defaultcategory_val, period_id_val)
+        log.info("smart_budget.suggestion.empty", reason="gating_min_months_all_categories")
+        return MemberSuggestionResponse(
+            idmember=str(idmember_val),
+            idclient=idclient,
+            idcompany=idcompany,
+            period_id=period_id_val,
+            method=_METHOD,
+            treatment=_TREATMENT,
+            model_version="fase0-v1",
+            total_suggested=None,
+            suggestions=None,
+            message="Not enough history to calculate suggestions. At least 2 months of data required.",
+        )
 
-    # Paso 7: compute_budget_suggestions
+    # Calcular sugerencias para todas las categorías que pasaron gating
     results = compute_budget_suggestions(
         gated,
         method=_METHOD,
@@ -170,67 +206,65 @@ def get_suggestion(
     )
 
     if not results:
-        log.info("smart_budget.suggestion.null", reason="no_results_in_window")
-        return _build_null_response(idaccount_val, history, defaultcategory_val, period_id_val)
+        log.info("smart_budget.suggestion.empty", reason="no_results_in_window")
+        return MemberSuggestionResponse(
+            idmember=str(idmember_val),
+            idclient=idclient,
+            idcompany=idcompany,
+            period_id=period_id_val,
+            method=_METHOD,
+            treatment=_TREATMENT,
+            model_version="fase0-v1",
+            total_suggested=None,
+            suggestions=None,
+            message="Not enough history to calculate suggestions for the requested period.",
+        )
 
-    r = results[0]
+    # Construir items por categoría
+    suggestions: list[SuggestionItem] = []
+    for r in results:
+        basis_data = r.get("basis") or {}
+        cat = r.get("defaultcategory", "")
 
-    # Paso 8: null suggestion (treatment B all-zeros en ventana)
-    if r.get("suggested_amount") is None:
-        log.info("smart_budget.suggestion.null", reason="treatment_b_all_zeros")
-        return _build_null_response(idaccount_val, history, defaultcategory_val, period_id_val)
+        # amount_by_month: filtrar historial de esta categoría para la ventana
+        cat_history = gated[gated["defaultcategory"] == cat] if cat else pd.DataFrame()
+        amount_by_month = _build_amount_by_month(cat_history, reference_date, _LOOKBACK)
+
+        amount = r.get("suggested_amount")
+        suggestions.append(
+            SuggestionItem(
+                defaultcategory=cat,
+                suggested_amount=round(amount, 2) if amount is not None else None,
+                confidence=r.get("confidence"),
+                basis=BasisDetail(
+                    months_analyzed=basis_data.get("months_analyzed", 0),
+                    months_with_spend=basis_data.get("months_with_positive_spend", 0),
+                    period_range=basis_data.get("period_range", ""),
+                ) if basis_data else None,
+                amount_by_month=amount_by_month,
+            )
+        )
+
+    model_version = results[0].get("model_version", "fase0-v1") if results else "fase0-v1"
+    total_suggested = float(results[0].get("total_suggested") or 0.0)
 
     log.info(
         "smart_budget.suggestion.done",
-        confidence=r.get("confidence"),
+        n_categories=len(suggestions),
+        total_suggested=total_suggested,
     )
 
-    # Construir amount_by_month desde la ventana de historial usada
-    basis = r.get("basis") or {}
-    amount_by_month = _build_amount_by_month(gated, reference_date, _LOOKBACK)
-
-    return SuggestionResponse(
-        idaccount=r["idaccount"],
-        idclient=r["idclient"],
-        idcompany=r["idcompany"],
-        defaultcategory=r["defaultcategory"],
-        period_id=period_id_val,
-        suggested_amount=round(r["suggested_amount"], 2),
-        confidence=r.get("confidence"),
-        basis=BasisDetail(
-            months_analyzed=basis.get("months_analyzed", 0),
-            months_with_positive_spend=basis.get("months_with_positive_spend", 0),
-            period_range=basis.get("period_range", ""),
-            method=basis.get("method", _METHOD),
-            treatment=basis.get("treatment", _TREATMENT),
-        ),
-        amount_by_month=amount_by_month,
-        display_label=r.get("display_label", ""),
-        model_version=r.get("model_version", "fase0-v1"),
-    )
-
-
-def _build_null_response(
-    idaccount: str,
-    history: pd.DataFrame,
-    defaultcategory: str,
-    period_id: str,
-) -> SuggestionResponse:
-    """Construye una respuesta null (datos insuficientes) desde el historial disponible."""
-    idclient = str(history["idclient"].iloc[0]) if not history.empty else ""
-    idcompany = str(history["idcompany"].iloc[0]) if not history.empty else ""
-    return SuggestionResponse(
-        idaccount=idaccount,
+    return MemberSuggestionResponse(
+        idmember=str(idmember_val),
         idclient=idclient,
         idcompany=idcompany,
-        defaultcategory=defaultcategory,
-        period_id=period_id,
-        suggested_amount=None,
-        confidence=None,
-        basis=None,
-        amount_by_month=None,
-        display_label="No hay suficiente historial para esta categoría",
-        model_version="fase0-v1",
+        period_id=period_id_val,
+        method=_METHOD,
+        treatment=_TREATMENT,
+        model_version=model_version,
+        total_suggested=round(total_suggested, 2),
+        suggestions=suggestions,
+        message=f"Based on your last {_LOOKBACK} months",
     )
 
 
@@ -242,18 +276,22 @@ def _build_amount_by_month(
     """Retorna los montos mensuales de la ventana usada para calcular la sugerencia.
 
     El resultado es un dict ordenado cronológicamente, ej.:
-    {"2026-02": 45.00, "2026-03": 0.0, "2026-04": 101.50}
+    {"2026-01": 45.00, "2026-02": 0.0, "2026-03": 101.50}
     Los meses con $0 se muestran como 0.0 (gasto nulo registrado).
     """
+    if history.empty:
+        ref = pd.Period(reference_date, freq="M")
+        window_start = ref - (lookback_months - 1)
+        return {str(window_start + i): 0.0 for i in range(lookback_months)}
+
     ref = pd.Period(reference_date, freq="M")
     window_start = ref - (lookback_months - 1)
 
-    # Filtrar ventana y construir el dict mes → monto
     mask = (history["period_yyyymm"] >= str(window_start)) & (
         history["period_yyyymm"] <= str(ref)
     )
-    window = history.loc[mask].set_index("period_yyyymm")["monthly_total"]
+    # Agrupar por período para evitar duplicados en el CSV real (idaccount múltiple)
+    window = history.loc[mask].groupby("period_yyyymm")["monthly_total"].sum()
 
-    # Rellenar meses faltantes dentro de la ventana con 0.0
     all_periods = [str(window_start + i) for i in range(lookback_months)]
     return {p: round(float(window.get(p, 0.0)), 2) for p in all_periods}

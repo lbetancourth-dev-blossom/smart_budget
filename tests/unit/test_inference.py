@@ -1,217 +1,178 @@
-"""tests/unit/test_inference.py — Unit tests for src/sagemaker/inference.py (DATA-1140).
+"""tests/unit/test_inference.py — Unit tests for src/sagemaker/inference.py (DATA-1179).
 
-Test contracts: TC-T5.1 – TC-T5.6
+Contrato actualizado: request {idmember, period_id} → response multi-categoría.
 """
 from __future__ import annotations
 
 import json
 import pytest
+import pandas as pd
 
 
 # ---------------------------------------------------------------------------
-# TC-T5.1 — model_fn: returns a path with CSV files
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_data_csv(tmp_path, rows: list[dict], csv_name: str = "smart_budget_data.csv"):
+    """Crea data/smart_budget_data.csv con los rows dados."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    pd.DataFrame(rows).to_csv(data_dir / csv_name, index=False)
+    return tmp_path
+
+
+def _rows(idmember="99", n_months=3, categories=("Groceries",)):
+    """Genera filas sintéticas para un miembro con N meses y K categorías."""
+    rows = []
+    for cat in categories:
+        for i in range(n_months):
+            rows.append({
+                "idclient": "1", "idcompany": "1",
+                "idmember": idmember, "idaccount": f"INT{idmember}",
+                "idcategory": "5", "defaultcategory": cat,
+                "period_yyyymm": f"2026-0{i+1}", "monthly_total": str(300.0 + i * 10),
+            })
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# TC-T5.1 — model_fn: retorna el path al model_dir
 # ---------------------------------------------------------------------------
 
 def test_inference_model_fn(tmp_path):
-    """
-    Arrange: tmp_dir with the 3 bundled CSVs (synthetic, internal, external).
-    Act: model_fn(str(tmp_dir)).
-    Assert: returns a Path that contains the 3 CSV files.
-    """
-    import pandas as pd
+    """model_fn retorna el directorio y lo añade al sys.path."""
     from src.sagemaker.inference import model_fn
-
-    # Create bundled CSV structure (like inside model.tar.gz)
-    (tmp_path / "smart_budget_synthetic.csv").write_text(
-        "idclient,idcompany,idaccount,idcategory,defaultcategory,period_yyyymm,monthly_total\n"
-        "1,1,SYN001,5,Groceries,2026-02,300.0\n"
-    )
-    (tmp_path / "test_internal.csv").write_text(
-        "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
-        "incomeexpenditure,deletedat,status\n"
-    )
-    (tmp_path / "test_external.csv").write_text(
-        "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
-        "incomeexpenditure,deletedat,status\n"
-    )
+    _make_data_csv(tmp_path, _rows())
 
     result = model_fn(str(tmp_path))
 
     from pathlib import Path
-    result_path = Path(result)
-    assert result_path.exists()
-    assert (result_path / "smart_budget_synthetic.csv").exists()
+    assert Path(result).exists()
+    assert result == str(tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# TC-T5.2 — input_fn: valid JSON → dict with 3 keys
+# TC-T5.2 — input_fn: JSON válido → dict con idmember y period_id
 # ---------------------------------------------------------------------------
 
 def test_inference_input_fn_valid():
-    """
-    Arrange: valid JSON payload.
-    Act: input_fn(json_str, "application/json").
-    Assert: dict with exactly the 3 expected keys.
-    """
+    """input_fn parsea {idmember, period_id} correctamente."""
     from src.sagemaker.inference import input_fn
 
-    payload = json.dumps({
-        "idaccount": "INT23",
-        "defaultcategory": "Groceries",
-        "period_id": "2026-05",
-    })
-
+    payload = json.dumps({"idmember": "15632", "period_id": "2026-05"})
     result = input_fn(payload, "application/json")
 
-    assert isinstance(result, dict)
-    assert "idaccount" in result
-    assert "defaultcategory" in result
-    assert "period_id" in result
-    assert result["idaccount"] == "INT23"
-    assert result["defaultcategory"] == "Groceries"
+    assert result["idmember"] == "15632"
     assert result["period_id"] == "2026-05"
 
 
 # ---------------------------------------------------------------------------
-# TC-T5.3 — input_fn: invalid JSON → ValueError
+# TC-T5.3 — input_fn: JSON inválido → ValueError
 # ---------------------------------------------------------------------------
 
 def test_inference_input_fn_invalid_json():
-    """
-    Arrange: non-JSON string.
-    Act: input_fn("not-json", "application/json").
-    Assert: ValueError (or json.JSONDecodeError) raised.
-    """
+    """input_fn lanza ValueError con string no-JSON."""
     from src.sagemaker.inference import input_fn
 
     with pytest.raises((ValueError, json.JSONDecodeError, Exception)):
         input_fn("not-json", "application/json")
 
 
+def test_inference_input_fn_missing_period_id():
+    """input_fn lanza ValueError si falta period_id."""
+    from src.sagemaker.inference import input_fn
+
+    with pytest.raises(ValueError, match="period_id"):
+        input_fn(json.dumps({"idmember": "15632"}), "application/json")
+
+
 # ---------------------------------------------------------------------------
-# TC-T5.4 — predict_fn: returns valid schema dict
+# TC-T5.4 — predict_fn: miembro con historial → sugerencias válidas
 # ---------------------------------------------------------------------------
 
 def test_inference_predict_fn_returns_valid_schema(tmp_path):
-    """
-    Arrange: SYN001/GROCERIES with 3 months of synthetic history.
-    Act: predict_fn(data, model_dir).
-    Assert: dict with suggested_amount >= 0 (or null) and confidence in expected set.
-    """
-    import pandas as pd
+    """predict_fn retorna dict con total_suggested >= 0 y lista de suggestions."""
     from src.sagemaker.inference import predict_fn
 
-    # Build synthetic CSV
-    synth_rows = [
-        {"idclient": "1", "idcompany": "1", "idaccount": "SYN001",
-         "idcategory": "5", "defaultcategory": "Groceries",
-         "period_yyyymm": "2026-02", "monthly_total": "300.0"},
-        {"idclient": "1", "idcompany": "1", "idaccount": "SYN001",
-         "idcategory": "5", "defaultcategory": "Groceries",
-         "period_yyyymm": "2026-03", "monthly_total": "320.0"},
-        {"idclient": "1", "idcompany": "1", "idaccount": "SYN001",
-         "idcategory": "5", "defaultcategory": "Groceries",
-         "period_yyyymm": "2026-04", "monthly_total": "340.0"},
-    ]
-    # CSVs en data/ — igual que estructura del tarball en el container
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    pd.DataFrame(synth_rows).to_csv(data_dir / "smart_budget_synthetic.csv", index=False)
-    (data_dir / "test_internal.csv").write_text(
-        "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
-        "incomeexpenditure,deletedat,status\n"
-    )
-    (data_dir / "test_external.csv").write_text(
-        "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
-        "incomeexpenditure,deletedat,status\n"
-    )
-
-    data = {"idaccount": "SYN001", "defaultcategory": "Groceries", "period_id": "2026-05"}
+    _make_data_csv(tmp_path, _rows(idmember="99", n_months=3, categories=("Groceries",)))
+    data = {"idmember": "99", "period_id": "2026-05"}
 
     result = predict_fn(data, str(tmp_path))
 
     assert isinstance(result, dict)
-    assert "suggested_amount" in result
-    if result["suggested_amount"] is not None:
-        assert result["suggested_amount"] >= 0.0
-        assert result.get("confidence") in {"low", "medium", "high", None}
+    assert "total_suggested" in result
+    assert "suggestions" in result
+    if result["total_suggested"] is not None:
+        assert result["total_suggested"] >= 0.0
+    if result["suggestions"]:
+        for s in result["suggestions"]:
+            if s["suggested_amount"] is not None:
+                assert s["suggested_amount"] >= 0.0
+            assert s.get("confidence") in {"low", "medium", "high", None}
 
 
 # ---------------------------------------------------------------------------
-# TC-T5.5 — predict_fn: 1 month → gating → null response
+# TC-T5.5 — predict_fn: < 2 meses → gating → null
 # ---------------------------------------------------------------------------
 
 def test_inference_predict_fn_gating(tmp_path):
-    """
-    Arrange: account with only 1 month of data (below gating threshold of 2).
-    Act: predict_fn(data, model_dir).
-    Assert: suggested_amount == null; confidence == null.
-    """
-    import pandas as pd
+    """predict_fn retorna suggestions=null cuando el miembro no supera gating."""
     from src.sagemaker.inference import predict_fn
 
-    # Only 1 month — gating min_months=2 will filter it out
-    synth_rows = [
-        {"idclient": "1", "idcompany": "1", "idaccount": "GATED001",
-         "idcategory": "5", "defaultcategory": "Groceries",
-         "period_yyyymm": "2026-02", "monthly_total": "300.0"},
-    ]
-    # CSVs en data/ — igual que estructura del tarball en el container
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    pd.DataFrame(synth_rows).to_csv(data_dir / "smart_budget_synthetic.csv", index=False)
-    (data_dir / "test_internal.csv").write_text(
-        "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
-        "incomeexpenditure,deletedat,status\n"
-    )
-    (data_dir / "test_external.csv").write_text(
-        "idclient,idcompany,idaccount,idtransaction,defaultcategory,date,amount,"
-        "incomeexpenditure,deletedat,status\n"
-    )
-
-    data = {"idaccount": "GATED001", "defaultcategory": "Groceries", "period_id": "2026-05"}
+    _make_data_csv(tmp_path, _rows(idmember="88", n_months=1))
+    data = {"idmember": "88", "period_id": "2026-05"}
 
     result = predict_fn(data, str(tmp_path))
 
-    assert result["suggested_amount"] is None
-    assert result["confidence"] is None
+    assert result["total_suggested"] is None
+    assert result["suggestions"] is None
+    assert result["message"] is not None
 
 
 # ---------------------------------------------------------------------------
-# TC-T5.6 — output_fn: serializes to parseable JSON string
+# TC-T5.6 — predict_fn: miembro no existe → ValueError
+# ---------------------------------------------------------------------------
+
+def test_inference_predict_fn_member_not_found(tmp_path):
+    """predict_fn lanza ValueError si el idmember no está en el CSV."""
+    from src.sagemaker.inference import predict_fn
+
+    _make_data_csv(tmp_path, _rows(idmember="99"))
+    data = {"idmember": "0000000", "period_id": "2026-05"}
+
+    with pytest.raises(ValueError, match="not found"):
+        predict_fn(data, str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# TC-T5.7 — output_fn: serializa a JSON parseable
 # ---------------------------------------------------------------------------
 
 def test_inference_output_fn():
-    """
-    Arrange: valid suggestion dict.
-    Act: output_fn(prediction, "application/json").
-    Assert: string JSON that can be parsed and contains schema fields.
-    """
+    """output_fn retorna JSON string parseble con el schema correcto."""
     from src.sagemaker.inference import output_fn
 
     prediction = {
-        "idaccount": "INT23",
+        "idmember": "99",
         "idclient": "1",
         "idcompany": "1",
-        "defaultcategory": "Groceries",
         "period_id": "2026-05",
-        "suggested_amount": 300.0,
-        "confidence": "medium",
-        "basis": {
-            "months_analyzed": 3,
-            "months_with_positive_spend": 3,
-            "period_range": "2026-02 ~ 2026-04",
-            "method": "wma",
-            "treatment": "B",
-        },
-        "display_label": "Basado en tus últimos 3 meses",
-        "model_version": "fase0-v1",
+        "total_suggested": 300.0,
+        "suggestions": [{
+            "defaultcategory": "Groceries",
+            "suggested_amount": 300.0,
+            "confidence": "medium",
+            "basis": None,
+            "amount_by_month": {},
+            "display_label": "Basado en tus últimos 3 meses",
+            "model_version": "fase0-v1",
+        }],
+        "message": None,
     }
 
     result = output_fn(prediction, "application/json")
 
     assert isinstance(result, str)
     parsed = json.loads(result)
-    assert "suggested_amount" in parsed
-    assert "confidence" in parsed
-    assert "basis" in parsed
+    assert parsed["total_suggested"] == 300.0
+    assert len(parsed["suggestions"]) == 1

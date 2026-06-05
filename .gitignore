@@ -1,6 +1,8 @@
-# ── Data extracts (nunca al repo) ─────────────────────────────────────────────
-data/
+# ── Data extracts (solo mantener datasets de referencia dev/alpha) ────────────
+data/*
 !data/.gitkeep
+!data/smart_budget_db_dev.csv
+!data/smart_budget_db_alpha.csv
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -35,6 +37,9 @@ aws-credentials*
 # ── Archivos de datos grandes ─────────────────────────────────────────────────
 *.parquet
 *.csv
+!data/smart_budget_db_dev.csv
+!data/smart_budget_db_alpha.csv
+!tests/fixtures/*.csv
 *.tsv
 *.xlsx
 *.xls

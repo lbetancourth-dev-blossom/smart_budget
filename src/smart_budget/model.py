@@ -153,23 +153,23 @@ def build_explanation(
     """
     if confidence is None:
         return (
-            "No hay datos históricos suficientes para calcular una sugerencia en esta categoría."
+            "Not enough historical data to calculate a suggestion for this category."
         )
     elif confidence == "high":
         return (
-            f"En {months_with_positive_spend} de tus últimos {months_analyzed} meses "
-            f"tuviste gastos en esta categoría. Esta sugerencia tiene alta confiabilidad."
+            f"In {months_with_positive_spend} of your last {months_analyzed} months "
+            f"you had spending in this category. This suggestion has high confidence."
         )
     elif confidence == "medium":
         return (
-            f"En {months_with_positive_spend} de tus últimos {months_analyzed} meses "
-            f"tuviste gastos en esta categoría. Esta sugerencia tiene confiabilidad media."
+            f"In {months_with_positive_spend} of your last {months_analyzed} months "
+            f"you had spending in this category. This suggestion has medium confidence."
         )
     else:  # "low"
         return (
-            f"En {months_with_positive_spend} de tus últimos {months_analyzed} meses "
-            f"tuviste gastos en esta categoría. Esta sugerencia está basada en pocos datos "
-            f"— revísala antes de confirmarla."
+            f"In {months_with_positive_spend} of your last {months_analyzed} months "
+            f"you had spending in this category. This suggestion is based on limited data "
+            f"— review it before confirming."
         )
 
 
@@ -177,10 +177,10 @@ def build_explanation(
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-_NULL_SUGGESTION_REASON = "No hay suficiente historial para calcular el monto sugerido"
-_NULL_DISPLAY_LABEL = "No hay suficiente historial para esta categoría"
+_NULL_SUGGESTION_REASON = "Not enough history to calculate a suggested amount"
+_NULL_DISPLAY_LABEL = "Not enough history for this category"
 _NULL_EXPLANATION = (
-    "No hay datos históricos suficientes para calcular una sugerencia en esta categoría."
+    "Not enough historical data to calculate a suggestion for this category."
 )
 _MODEL_VERSION = "fase0-v1"
 
@@ -190,7 +190,7 @@ def _null_suggestion(bucket_meta: dict) -> dict:
     return {
         "category_id": bucket_meta["idcategory"],
         "defaultcategory": bucket_meta["defaultcategory"],
-        "idaccount": bucket_meta["idaccount"],
+        "idmember": bucket_meta["idmember"],
         "idclient": bucket_meta["idclient"],
         "idcompany": bucket_meta["idcompany"],
         "suggested_amount": None,
@@ -200,6 +200,7 @@ def _null_suggestion(bucket_meta: dict) -> dict:
         "explanation": _NULL_EXPLANATION,
         "model_version": _MODEL_VERSION,
         "reason": _NULL_SUGGESTION_REASON,
+        "total_suggested": None,  # Will be patched after per-member aggregation
     }
 
 
@@ -213,8 +214,9 @@ def compute_budget_suggestions(
     epsilon: float = EPSILON_DEFAULT,
 ) -> list[dict]:
     """
-    Función principal. Pipeline por bucket (idaccount × idcategory × defaultcategory):
+    Función principal. Pipeline por bucket (idmember × idcategory × defaultcategory):
 
+    0. Collapse monthly_total to idmember grain (sum across accounts per member/period)
     1. Filtrar df a los N meses anteriores a reference_date (inclusive)
     2. PRE-treatment basis extraction
     3. apply_treatment
@@ -224,6 +226,7 @@ def compute_budget_suggestions(
     7. Clamp negative to 0, round to 2 decimals
     8. Build explanation
     9. Build JSON dict
+    10. Post-process: compute total_suggested per (idclient, idcompany, idmember)
 
     Args:
         lookback_months: ventana de meses hacia atrás desde reference_date (inclusive).
@@ -238,6 +241,27 @@ def compute_budget_suggestions(
 
     if df.empty:
         return []
+
+    # Step 0: Collapse to idmember grain — sum monthly_total across accounts per member/period.
+    # Security [AUTH-2]: include idclient + idcompany in groupby to prevent cross-tenant mixing.
+    has_idmember = "idmember" in df.columns
+    if has_idmember:
+        # AUTH-2 guard: same idmember integer must not appear with multiple idcompany values.
+        # This is a cross-tenant collision and must be rejected before any processing.
+        idmember_company_counts = df.groupby("idmember")["idcompany"].nunique()
+        collisions = idmember_company_counts[idmember_company_counts > 1]
+        if not collisions.empty:
+            collision_ids = sorted(collisions.index.tolist())
+            raise ValueError(
+                f"Cross-company idmember collision detected for idmember(s): {collision_ids}. "
+                "The same idmember integer appears with multiple idcompany values. "
+                "This is a security violation (AUTH-2). Ensure input data is scoped to a single company."
+            )
+
+        collapse_keys = ["idclient", "idcompany", "idmember", "idcategory", "defaultcategory", "period_yyyymm"]
+        df = df.groupby(collapse_keys, as_index=False)["monthly_total"].sum()
+    # Legacy path: idmember not in df — keep idaccount-based grouping
+    # (bucket_keys will use idaccount below)
 
     # Step 1: filter to months dentro de la ventana de lookback_months hasta reference_date.
     # El mes de reference_date ES incluido (<= es intencional).
@@ -254,16 +278,23 @@ def compute_budget_suggestions(
         return []
 
     results = []
-    bucket_keys = ["idaccount", "idcategory", "defaultcategory"]
+    if has_idmember:
+        bucket_keys = ["idmember", "idcategory", "defaultcategory"]
+    else:
+        bucket_keys = ["idaccount", "idcategory", "defaultcategory"]
 
     for bucket, df_bucket in df.groupby(bucket_keys, sort=True):
-        idaccount, idcategory, defaultcategory = bucket
+        if has_idmember:
+            idmember, idcategory, defaultcategory = bucket
+        else:
+            idaccount, idcategory, defaultcategory = bucket
+            idmember = idaccount  # legacy
 
         # Pull consistent metadata from the bucket
         idclient = str(df_bucket["idclient"].iloc[0])
         idcompany = str(df_bucket["idcompany"].iloc[0])
         bucket_meta = {
-            "idaccount": str(idaccount),
+            "idmember": str(idmember),
             "idcategory": str(idcategory),
             "defaultcategory": str(defaultcategory),
             "idclient": idclient,
@@ -319,7 +350,7 @@ def compute_budget_suggestions(
         result = {
             "category_id": str(idcategory),
             "defaultcategory": str(defaultcategory),
-            "idaccount": str(idaccount),
+            "idmember": str(idmember),
             "idclient": idclient,
             "idcompany": idcompany,
             "suggested_amount": suggested_amount,
@@ -332,10 +363,36 @@ def compute_budget_suggestions(
                 "treatment": treatment,
             },
             "confidence": confidence,
-            "display_label": f"Basado en tus últimos {months_analyzed} meses",
+            "display_label": f"Based on your last {months_analyzed} months",
             "explanation": explanation,
             "model_version": _MODEL_VERSION,
+            "total_suggested": None,  # Will be set in Step 10
         }
         results.append(result)
+
+    # Step 10: Compute total_suggested per (idclient, idcompany, idmember).
+    # Security [AUTH-2]: idclient + idcompany included to prevent cross-tenant mixing.
+    # Business rule: total_suggested = sum of non-null suggested_amounts; if all null → 0.0.
+    from collections import defaultdict
+    member_totals: dict = defaultdict(float)
+    member_has_suggestion: dict = defaultdict(bool)
+
+    for r in results:
+        key = (r["idclient"], r["idcompany"], r["idmember"])
+        amount = r.get("suggested_amount")
+        if amount is not None:
+            member_totals[key] += amount
+            member_has_suggestion[key] = True
+
+    for r in results:
+        key = (r["idclient"], r["idcompany"], r["idmember"])
+        if member_has_suggestion.get(key, False):
+            r["total_suggested"] = round(member_totals[key], 2)
+        else:
+            r["total_suggested"] = 0.0  # All null → show $0, never hide widget
+
+        # Remove internal None placeholder from null_suggestion entries
+        if "reason" in r and r.get("total_suggested") is None:
+            r["total_suggested"] = 0.0
 
     return results
