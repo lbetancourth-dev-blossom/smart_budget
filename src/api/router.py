@@ -99,12 +99,12 @@ class MemberSuggestionResponse(BaseModel):
     idclient: str
     idcompany: str
     period_id: str
-    method: str
-    treatment: str
-    model_version: str
     total_suggested: Optional[float]
     suggestions: Optional[List[SuggestionItem]]
     message: str
+    method: str
+    treatment: str
+    model_version: str
 
 
 # ---------------------------------------------------------------------------
