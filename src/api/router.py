@@ -120,7 +120,7 @@ _LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
 
-@router.get("/suggestion", response_model=MemberSuggestionResponse)
+@router.get("/suggestion", response_model=MemberSuggestionResponse, response_model_exclude_none=True)
 def get_suggestion(
     idmember: str = Query(
         ...,
