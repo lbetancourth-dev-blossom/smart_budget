@@ -92,7 +92,6 @@ class SuggestionItem(BaseModel):
     confidence: Optional[str]
     basis: Optional[BasisDetail]
     amount_by_month: Optional[dict[str, Optional[float]]]
-    display_label: str
     model_version: str
 
 
@@ -105,7 +104,7 @@ class MemberSuggestionResponse(BaseModel):
     period_id: str
     total_suggested: Optional[float]
     suggestions: Optional[List[SuggestionItem]]
-    message: Optional[str] = None
+    message: str
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +119,7 @@ _LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
 
-@router.get("/suggestion", response_model=MemberSuggestionResponse, response_model_exclude_none=True)
+@router.get("/suggestion", response_model=MemberSuggestionResponse)
 def get_suggestion(
     idmember: str = Query(
         ...,
@@ -236,7 +235,6 @@ def get_suggestion(
                     treatment=basis_data.get("treatment", _TREATMENT),
                 ) if basis_data else None,
                 amount_by_month=amount_by_month,
-                display_label=r.get("display_label", ""),
                 model_version=r.get("model_version", "fase0-v1"),
             )
         )
@@ -256,6 +254,7 @@ def get_suggestion(
         period_id=period_id_val,
         total_suggested=round(total_suggested, 2),
         suggestions=suggestions,
+        message=f"Based on your last {_LOOKBACK} months",
     )
 
 

@@ -221,7 +221,7 @@ def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatc
 
     assert response.status_code == 200
     body = response.json()
-    assert "suggestions" not in body
+    assert body["suggestions"] is None
     assert body.get("total_suggested") is None
     assert body["message"] is not None
 
@@ -247,7 +247,7 @@ def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch)
 
     assert response.status_code == 200
     body = response.json()
-    assert "suggestions" not in body
+    assert body["suggestions"] is None
     assert body.get("total_suggested") is None
     assert "history" in body["message"].lower()
 
