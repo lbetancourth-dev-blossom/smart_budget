@@ -78,10 +78,8 @@ class PeriodId(str, Enum):
 
 class BasisDetail(BaseModel):
     months_analyzed: int
-    months_with_positive_spend: int
+    months_with_spend: int
     period_range: str
-    method: str
-    treatment: str
 
 
 class SuggestionItem(BaseModel):
@@ -92,7 +90,6 @@ class SuggestionItem(BaseModel):
     confidence: Optional[str]
     basis: Optional[BasisDetail]
     amount_by_month: Optional[dict[str, Optional[float]]]
-    model_version: str
 
 
 class MemberSuggestionResponse(BaseModel):
@@ -102,6 +99,9 @@ class MemberSuggestionResponse(BaseModel):
     idclient: str
     idcompany: str
     period_id: str
+    method: str
+    treatment: str
+    model_version: str
     total_suggested: Optional[float]
     suggestions: Optional[List[SuggestionItem]]
     message: str
@@ -166,6 +166,9 @@ def get_suggestion(
             idclient="",
             idcompany="",
             period_id=period_id_val,
+            method=_METHOD,
+            treatment=_TREATMENT,
+            model_version="fase0-v1",
             total_suggested=None,
             suggestions=None,
             message="No hay datos disponibles para este miembro.",
@@ -185,6 +188,9 @@ def get_suggestion(
             idclient=idclient,
             idcompany=idcompany,
             period_id=period_id_val,
+            method=_METHOD,
+            treatment=_TREATMENT,
+            model_version="fase0-v1",
             total_suggested=None,
             suggestions=None,
             message="Not enough history to calculate suggestions. At least 2 months of data required.",
@@ -206,6 +212,9 @@ def get_suggestion(
             idclient=idclient,
             idcompany=idcompany,
             period_id=period_id_val,
+            method=_METHOD,
+            treatment=_TREATMENT,
+            model_version="fase0-v1",
             total_suggested=None,
             suggestions=None,
             message="Not enough history to calculate suggestions for the requested period.",
@@ -229,16 +238,14 @@ def get_suggestion(
                 confidence=r.get("confidence"),
                 basis=BasisDetail(
                     months_analyzed=basis_data.get("months_analyzed", 0),
-                    months_with_positive_spend=basis_data.get("months_with_positive_spend", 0),
+                    months_with_spend=basis_data.get("months_with_positive_spend", 0),
                     period_range=basis_data.get("period_range", ""),
-                    method=basis_data.get("method", _METHOD),
-                    treatment=basis_data.get("treatment", _TREATMENT),
                 ) if basis_data else None,
                 amount_by_month=amount_by_month,
-                model_version=r.get("model_version", "fase0-v1"),
             )
         )
 
+    model_version = results[0].get("model_version", "fase0-v1") if results else "fase0-v1"
     total_suggested = float(results[0].get("total_suggested") or 0.0)
 
     log.info(
@@ -252,6 +259,9 @@ def get_suggestion(
         idclient=idclient,
         idcompany=idcompany,
         period_id=period_id_val,
+        method=_METHOD,
+        treatment=_TREATMENT,
+        model_version=model_version,
         total_suggested=round(total_suggested, 2),
         suggestions=suggestions,
         message=f"Based on your last {_LOOKBACK} months",

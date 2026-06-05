@@ -128,10 +128,8 @@ def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    for item in body["suggestions"]:
-        if item["basis"] is not None:
-            assert item["basis"]["method"] == "wma"
-            assert item["basis"]["treatment"] == "B"
+    assert body["method"] == "wma"
+    assert body["treatment"] == "B"
 
 
 # ---------------------------------------------------------------------------
