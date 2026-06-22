@@ -79,10 +79,11 @@ def test_TC_T6_4_golden_set_matches_wma_output():
 
     # golden_set contains prepared monthly data — apply model on it
     # Build input for compute_budget_suggestions from golden set
-    input_cols = ["idmember", "idclient", "idcompany", "category_id", "defaultcategory", 
+    # golden_set.csv uses legacy column name 'defaultcategory'; rename to 'category_name' (D4)
+    input_cols = ["idmember", "idclient", "idcompany", "category_id", "defaultcategory",
                   "period_yyyymm", "monthly_total"]
     golden_input = golden[input_cols].copy()
-    golden_input = golden_input.rename(columns={"category_id": "idcategory"})
+    golden_input = golden_input.rename(columns={"defaultcategory": "category_name"})
     golden_input["monthly_total"] = pd.to_numeric(golden_input["monthly_total"])
 
     # Apply model
@@ -90,9 +91,9 @@ def test_TC_T6_4_golden_set_matches_wma_output():
         golden_input, method="wma", treatment="A", reference_date="2026-03-01"
     )
 
-    # Build map: (idmember, category_id, defaultcategory) → suggested_amount
+    # Build map: (idmember, category_id, category_name) → suggested_amount
     results_map = {
-        (str(r["idmember"]), r["category_id"], r["defaultcategory"]): r["suggested_amount"]
+        (str(r["idmember"]), r["category_id"], r["category_name"]): r["suggested_amount"]
         for r in results
     }
 

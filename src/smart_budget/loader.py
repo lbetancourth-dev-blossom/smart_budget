@@ -153,11 +153,17 @@ def _load_raw_for_account(
     if filtered.empty:
         return pd.DataFrame()
 
-    # Paso 6: añadir idcategory sintético (aggregate_monthly lo requiere)
-    filtered["idcategory"] = filtered["defaultcategory"]
+    # Paso 6: añadir category_id / category_name sintéticos (aggregate_monthly los requiere — D4)
+    filtered["category_id"] = filtered["defaultcategory"]
+    filtered["category_name"] = filtered["defaultcategory"]
 
     # Paso 7: agregación mensual
     aggregated = aggregate_monthly(filtered)
+
+    # Renombrar de vuelta a los nombres legacy que usa la API pública de este loader
+    aggregated = aggregated.rename(
+        columns={"category_id": "idcategory", "category_name": "defaultcategory"}
+    )
 
     return aggregated[
         [
