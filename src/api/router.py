@@ -23,7 +23,11 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from smart_budget.aggregator import apply_gating
-from smart_budget.loader import member_exists, load_history_by_member
+from smart_budget.athena_loader import (
+    AthenaQueryError,
+    load_history_by_member_athena,
+    member_exists_athena,
+)
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
@@ -85,7 +89,8 @@ class BasisDetail(BaseModel):
 class SuggestionItem(BaseModel):
     """Sugerencia de presupuesto para una categoría individual."""
 
-    defaultcategory: str
+    category_id: str
+    category_name: str
     suggested_amount: Optional[float]
     confidence: Optional[str]
     basis: Optional[BasisDetail]
@@ -147,16 +152,21 @@ def get_suggestion(
     log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=_ACTIVE_ENV)
     log.info("smart_budget.suggestion.start")
 
-    # Cargar historial de todas las categorías del miembro desde el CSV del entorno
+    # Cargar historial de todas las categorías del miembro desde Athena
     try:
-        history = load_history_by_member(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name)
-    except FileNotFoundError:
-        log.error("smart_budget.suggestion.base_dir_not_found", data_path=str(_DATA_PATH))
-        raise HTTPException(status_code=500, detail=f"data file not found: {_DATA_PATH.name}")
+        history = load_history_by_member_athena(idmember=idmember_val)
+    except AthenaQueryError as e:
+        log.error("smart_budget.suggestion.athena_error", error=str(e))
+        raise HTTPException(status_code=503, detail="datalake temporarily unavailable")
 
     # Miembro no existe → 404
     if history.empty:
-        if not member_exists(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name):
+        try:
+            exists = member_exists_athena(idmember=idmember_val)
+        except AthenaQueryError as e:
+            log.error("smart_budget.suggestion.athena_error", error=str(e))
+            raise HTTPException(status_code=503, detail="datalake temporarily unavailable")
+        if not exists:
             log.info("smart_budget.suggestion.not_found")
             raise HTTPException(status_code=404, detail="idmember not found")
         # Miembro existe pero no tiene datos → 200 con null + mensaje
@@ -224,16 +234,18 @@ def get_suggestion(
     suggestions: list[SuggestionItem] = []
     for r in results:
         basis_data = r.get("basis") or {}
-        cat = r.get("defaultcategory", "")
+        cat_id = r.get("category_id", "")
+        cat_name = r.get("category_name", "")
 
         # amount_by_month: filtrar historial de esta categoría para la ventana
-        cat_history = gated[gated["defaultcategory"] == cat] if cat else pd.DataFrame()
+        cat_history = gated[gated["category_name"] == cat_name] if cat_name else pd.DataFrame()
         amount_by_month = _build_amount_by_month(cat_history, reference_date, _LOOKBACK)
 
         amount = r.get("suggested_amount")
         suggestions.append(
             SuggestionItem(
-                defaultcategory=cat,
+                category_id=cat_id,
+                category_name=cat_name,
                 suggested_amount=round(amount, 2) if amount is not None else None,
                 confidence=r.get("confidence"),
                 basis=BasisDetail(
