@@ -27,21 +27,22 @@ from unittest.mock import patch
 def _make_history_df(
     idmember=10,
     idaccount="EXT2",
-    defaultcategory="Groceries",
+    category_name="Groceries",
+    category_id="5",
     idclient="1",
     idcompany="1",
     n_months=3,
     monthly_total=300.0,
 ):
-    """Construye un DataFrame de historial pre-agregado con grain idmember."""
+    """Construye un DataFrame de historial pre-agregado con grain idmember (schema Athena D4)."""
     periods = [f"2026-0{i}" for i in range(2, 2 + n_months)]
     return pd.DataFrame({
         "idclient": [idclient] * n_months,
         "idcompany": [idcompany] * n_months,
         "idmember": [idmember] * n_months,
         "idaccount": [idaccount] * n_months,
-        "idcategory": ["5"] * n_months,
-        "defaultcategory": [defaultcategory] * n_months,
+        "category_id": [category_id] * n_months,
+        "category_name": [category_name] * n_months,
         "period_yyyymm": periods,
         "monthly_total": [monthly_total] * n_months,
     })
@@ -69,7 +70,7 @@ def test_get_suggestion_happy_path_returns_200(tmp_path, monkeypatch):
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history_by_member", return_value=history_df):
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -94,7 +95,7 @@ def test_get_suggestion_suggested_amount_non_negative(tmp_path, monkeypatch):
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df(monthly_total=250.0)
 
-    with patch("src.api.router.load_history_by_member", return_value=history_df):
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -120,7 +121,7 @@ def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history_by_member", return_value=history_df):
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -145,7 +146,7 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history_by_member", return_value=history_df):
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -167,8 +168,8 @@ def test_get_suggestion_member_not_found_returns_404(tmp_path, monkeypatch):
     """
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history_by_member", return_value=pd.DataFrame()), \
-         patch("src.api.router.member_exists", return_value=False):
+    with patch("src.api.router.load_history_by_member_athena", return_value=pd.DataFrame()), \
+         patch("src.api.router.member_exists_athena", return_value=False):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -210,8 +211,8 @@ def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatc
     """
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history_by_member", return_value=pd.DataFrame()), \
-         patch("src.api.router.member_exists", return_value=True):
+    with patch("src.api.router.load_history_by_member_athena", return_value=pd.DataFrame()), \
+         patch("src.api.router.member_exists_athena", return_value=True):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -237,7 +238,7 @@ def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch)
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df(n_months=1)
 
-    with patch("src.api.router.load_history_by_member", return_value=history_df):
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -262,7 +263,7 @@ def test_get_suggestion_uses_idmember_not_idaccount(tmp_path, monkeypatch):
     tc = _make_client(tmp_path, monkeypatch)
     history_df = _make_history_df()
 
-    with patch("src.api.router.load_history_by_member", return_value=history_df):
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -274,3 +275,82 @@ def test_get_suggestion_uses_idmember_not_idaccount(tmp_path, monkeypatch):
     assert "idaccount" not in body
     assert isinstance(body["total_suggested"], (int, float))
     assert body["total_suggested"] >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# TC-API-10 — Respuesta incluye category_id y category_name (D4)
+# ---------------------------------------------------------------------------
+
+def test_TC_API_10_response_includes_category_id_and_name(tmp_path, monkeypatch):
+    """
+    Arrange: load_history_by_member_athena returns df with category_id="42", category_name="Groceries".
+    Act: GET /smart-budget/suggestion.
+    Assert: JSON response suggestions contain category_id="42" and category_name="Groceries".
+    """
+    from smart_budget.athena_loader import AthenaQueryError  # noqa: F401
+
+    tc = _make_client(tmp_path, monkeypatch)
+    history_df = _make_history_df(category_id="42", category_name="Groceries")
+
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
+        response = tc.get(
+            "/smart-budget/suggestion",
+            params={"idmember": 10, "period_id": "2026-05"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suggestions"] is not None
+    assert len(body["suggestions"]) > 0
+    first = body["suggestions"][0]
+    assert first["category_id"] == "42"
+    assert first["category_name"] == "Groceries"
+
+
+# ---------------------------------------------------------------------------
+# TC-API-11 — AthenaQueryError → 503 datalake temporarily unavailable
+# ---------------------------------------------------------------------------
+
+def test_TC_API_11_athena_error_returns_503(tmp_path, monkeypatch):
+    """
+    Arrange: load_history_by_member_athena raises AthenaQueryError("timeout").
+    Act: GET /smart-budget/suggestion.
+    Assert: HTTP 503; detail == "datalake temporarily unavailable".
+    """
+    from smart_budget.athena_loader import AthenaQueryError
+
+    tc = _make_client(tmp_path, monkeypatch)
+
+    with patch("src.api.router.load_history_by_member_athena", side_effect=AthenaQueryError("timeout")):
+        response = tc.get(
+            "/smart-budget/suggestion",
+            params={"idmember": 10, "period_id": "2026-05"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "datalake temporarily unavailable"
+
+
+# ---------------------------------------------------------------------------
+# TC-API-12 — Respuesta no contiene clave defaultcategory (D4 clean break)
+# ---------------------------------------------------------------------------
+
+def test_TC_API_12_no_defaultcategory_in_response(tmp_path, monkeypatch):
+    """
+    Arrange: successful response with Athena loader.
+    Act: GET /smart-budget/suggestion.
+    Assert: JSON response does NOT contain key "defaultcategory" anywhere.
+    """
+    tc = _make_client(tmp_path, monkeypatch)
+    history_df = _make_history_df()
+
+    with patch("src.api.router.load_history_by_member_athena", return_value=history_df):
+        response = tc.get(
+            "/smart-budget/suggestion",
+            params={"idmember": 10, "period_id": "2026-05"},
+        )
+
+    assert response.status_code == 200
+    import json
+    response_text = json.dumps(response.json())
+    assert "defaultcategory" not in response_text
