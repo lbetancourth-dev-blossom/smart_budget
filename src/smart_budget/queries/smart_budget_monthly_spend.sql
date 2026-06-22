@@ -2,13 +2,13 @@
 -- Extrae el gasto mensual agregado por miembro y categoría desde fact_transactions.
 --
 -- Fuente : blossom-dough-consolidated-alpha · schema public
--- Grain  : (idmember, defaultcategory, period_yyyymm)
--- Output : base para smart_budget_synthetic_idmember.csv y para el pipeline batch
+-- Grain  : (idmember, idcategory, iddefaultcategory, period_yyyymm)
+-- Output : base para smart_budget_db_dev.csv / smart_budget_db_alpha.csv y pipeline batch
 --
 -- Reglas de filtrado aplicadas (equivalentes a filters.py):
 --   1. deletedat IS NULL                      → excluir soft-deleted
 --   2. incomeexpenditure = 'expenditure'      → solo gastos
---   3. defaultcategory NOT IN (exclusiones)   → categorías válidas
+--   3. categoryname NOT IN (exclusiones)      → categorías válidas (desde fmtc)
 --   4. idtransaction NOT LIKE 'LOAN%'         → excluir pagos de préstamos
 --   5. SUB%: status IS NULL OR NOT IN (PENDING, HOLD)
 --   6. EXT%: UPPER(status) = 'POSTED'
@@ -25,6 +25,10 @@
 -- Resolución de idmember:
 --   fact_transactions.idaccount → bridge_member_account.idaccount → idmember
 --
+-- Resolución de categoría:
+--   fact_transactions.idtransaction → fact_member_transaction_category.idtransaction
+--   → idcategory, iddefaultcategory, categoryname, categorygroupname
+--
 -- Parámetro opcional de ventana temporal:
 --   Descomentar el WHERE de la CTE outer para limitar a los últimos N meses.
 --   Ejemplo para 12 meses:
@@ -36,10 +40,11 @@ WITH base AS (
         ft.idcompany,
         bma.idmember,
         ft.idaccount,
-        -- idcategory resuelto desde el catálogo: defaultcategory.name → defaultcategory.id
-        -- NULL si la categoría no existe en el catálogo (ej: categorías legacy sin mapeo)
-        dc.id                                             AS idcategory,
-        ft.defaultcategory,
+        -- Categoría resuelta desde fact_member_transaction_category por idtransaction
+        fmtc.idcategory,
+        fmtc.iddefaultcategory,
+        fmtc.categoryname,
+        fmtc.categorygroupname,
         TO_CHAR(ft.date, 'YYYY-MM')                       AS period_yyyymm,
         -- ABS() normaliza el signo: OLB/OTHER guardan gastos como NEGATIVOS (confirmado).
         -- SUM() acumula el gasto neto del mes.
@@ -48,11 +53,10 @@ WITH base AS (
     FROM public.fact_transactions ft
     JOIN public.bridge_member_account bma
         ON ft.idaccount::TEXT = bma.idaccount::TEXT
-    -- LEFT JOIN para no perder transacciones cuya categoría no esté en el catálogo
+    -- LEFT JOIN para no perder transacciones sin categoría asignada
     -- (categorías huérfanas: loguear warning en pipeline, no excluir silenciosamente)
-    LEFT JOIN public.defaultcategory dc
-        ON UPPER(dc.name) = UPPER(ft.defaultcategory)
-        AND dc.deletedat IS NULL
+    LEFT JOIN public.fact_member_transaction_category fmtc
+        ON ft.idtransaction = fmtc.idtransaction
     WHERE
         -- Regla 1: excluir soft-deleted
         ft.deletedat IS NULL
@@ -60,9 +64,9 @@ WITH base AS (
         -- Regla 2: solo gastos (no ingresos ni transferencias internas)
         AND LOWER(ft.incomeexpenditure) = 'expenditure'
 
-        -- Regla 3: categorías válidas
-        AND ft.defaultcategory IS NOT NULL
-        AND UPPER(ft.defaultcategory) NOT IN ('UNCATEGORIZED', 'INCOME', 'MONEY_SENT')
+        -- Regla 3: categorías válidas (filtro sobre categoryname del join)
+        AND fmtc.categoryname IS NOT NULL
+        AND UPPER(fmtc.categoryname) NOT IN ('UNCATEGORIZED', 'INCOME', 'MONEY_SENT')
 
         -- Regla 4: excluir pagos de préstamos (obligación fija, no gasto discrecional)
         AND ft.idtransaction NOT LIKE 'LOAN%'
@@ -93,8 +97,10 @@ WITH base AS (
         ft.idcompany,
         bma.idmember,
         ft.idaccount,
-        dc.id,
-        ft.defaultcategory,
+        fmtc.idcategory,
+        fmtc.iddefaultcategory,
+        fmtc.categoryname,
+        fmtc.categorygroupname,
         period_yyyymm
 )
 
@@ -104,7 +110,9 @@ SELECT
     idmember,
     idaccount,
     idcategory,
-    defaultcategory,
+    iddefaultcategory,
+    categoryname,
+    categorygroupname,
     period_yyyymm,
     monthly_total
 FROM base
@@ -113,4 +121,4 @@ FROM base
 ORDER BY
     idmember,
     period_yyyymm,
-    defaultcategory
+    categoryname

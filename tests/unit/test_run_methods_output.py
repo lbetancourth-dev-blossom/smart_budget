@@ -28,8 +28,8 @@ def _make_synthetic_csv(tmp_path: pathlib.Path) -> pathlib.Path:
             "idcompany": "CO1",
             "idmember": 10,
             "idaccount": "EXT10",
-            "idcategory": "5",
-            "defaultcategory": "GROCERIES",
+            "category_id": "5",
+            "category_name": "GROCERIES",
             "period_yyyymm": period,
             "monthly_total": total,
         })
@@ -40,8 +40,8 @@ def _make_synthetic_csv(tmp_path: pathlib.Path) -> pathlib.Path:
             "idcompany": "CO1",
             "idmember": 20,
             "idaccount": "EXT20",
-            "idcategory": "9",
-            "defaultcategory": "DINING",
+            "category_id": "9",
+            "category_name": "DINING",
             "period_yyyymm": period,
             "monthly_total": total,
         })

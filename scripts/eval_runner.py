@@ -171,7 +171,7 @@ def load_and_split(
     # Actuals: rows for holdout month
     actuals_df = (
         df[df["period_yyyymm"] == holdout_month][
-            ["idaccount", "idcategory", "defaultcategory", "monthly_total"]
+            ["idmember", "category_id", "category_name", "monthly_total"]
         ]
         .copy()
         .reset_index(drop=True)
@@ -225,13 +225,13 @@ def compute_metrics(
 
     n_total_holdout: int = len(actuals_df)
 
-    # Build lookup: (idaccount, idcategory, defaultcategory) → monthly_total
+    # Build lookup: (idmember, category_id, category_name) → monthly_total
     actuals_lookup: dict[tuple[str, str, str], float] = {}
     for _, row in actuals_df.iterrows():
         key = (
-            str(row["idaccount"]),
-            str(row["idcategory"]),
-            str(row["defaultcategory"]),
+            str(row["idmember"]),
+            str(row["category_id"]),
+            str(row["category_name"]),
         )
         actuals_lookup[key] = float(row["monthly_total"])
 
@@ -250,8 +250,8 @@ def compute_metrics(
             n_null += 1
             continue
 
-        # Match by (idaccount, category_id, defaultcategory) → (idaccount, idcategory, defaultcategory)
-        key = (str(r["idaccount"]), str(r["category_id"]), str(r["defaultcategory"]))
+        # Match by (idmember, category_id, category_name)
+        key = (str(r["idmember"]), str(r["category_id"]), str(r["category_name"]))
         if key not in actuals_lookup:
             # Silently skip unmatched suggestions
             continue
@@ -265,7 +265,7 @@ def compute_metrics(
             mape_errors.append(abs(float(suggested) - actual) / actual)
 
         # Seasonal vs regular split
-        if str(r["defaultcategory"]) in seasonal_categories:
+        if str(r["category_name"]) in seasonal_categories:
             seasonal_errors.append(error)
         else:
             regular_errors.append(error)
