@@ -130,6 +130,8 @@ def test_prepare_smart_budget_data_end_to_end():
     # Add idmember for the test (all rows get member 1)
     filtered = filtered.copy()
     filtered["idmember"] = 1
+    # D4: rename old columns to new schema (Athena loader returns category_id/category_name)
+    filtered = filtered.rename(columns={"idcategory": "category_id", "defaultcategory": "category_name"})
     result = prepare_smart_budget_data(filtered, min_months=3)
     # Output column contract: idmember replaces idaccount in output
     expected_cols = {
@@ -155,6 +157,8 @@ def test_prepare_idempotent():
     filtered = filter_transactions(df)
     filtered = filtered.copy()
     filtered["idmember"] = 1
+    # D4: rename old columns to new schema
+    filtered = filtered.rename(columns={"idcategory": "category_id", "defaultcategory": "category_name"})
     result_1 = prepare_smart_budget_data(filtered.copy(), min_months=3)
     result_2 = prepare_smart_budget_data(filtered.copy(), min_months=3)
     pd.testing.assert_frame_equal(
