@@ -250,8 +250,8 @@ def _make_budget_df(idmember, idcategory, defaultcategory, idclient, idcompany, 
     return pd.DataFrame({
         "idmember": idmember,
         "idaccount": idaccount,
-        "idcategory": idcategory,
-        "defaultcategory": defaultcategory,
+        "category_id": idcategory,
+        "category_name": defaultcategory,
         "idclient": idclient,
         "idcompany": idcompany,
         "period_yyyymm": periods,
@@ -421,7 +421,7 @@ def test_TC4_8_json_contract_fields():
     r = results[0]
 
     required_fields = {
-        "category_id", "defaultcategory", "idmember", "idclient", "idcompany",
+        "category_id", "category_name", "idmember", "idclient", "idcompany",
         "suggested_amount", "basis", "confidence", "display_label", "explanation",
         "model_version", "total_suggested",
     }
@@ -460,8 +460,8 @@ def test_TC_T4_1_null_suggestion_has_idmember_not_idaccount():
 
     bucket_meta = {
         "idmember": "10",
-        "idcategory": "cat1",
-        "defaultcategory": "GROCERIES",
+        "category_id": "cat1",
+        "category_name": "GROCERIES",
         "idclient": "C1",
         "idcompany": "CO1",
     }
@@ -496,8 +496,8 @@ def test_TC_T4_3_total_suggested_is_sum_of_non_null():
             rows.append({
                 "idmember": 10,
                 "idaccount": "EXT10",
-                "idcategory": cat,
-                "defaultcategory": cat,
+                "category_id": cat,
+                "category_name": cat,
                 "idclient": "C1",
                 "idcompany": "CO1",
                 "period_yyyymm": period,
@@ -560,13 +560,13 @@ def test_TC_T4_5_two_members_have_independent_total_suggested():
 
     # Member 10: one category, 3 months ~200 each
     rows_10 = [
-        {"idmember": 10, "idaccount": "EXT10", "idcategory": "CAT1", "defaultcategory": "GROCERIES",
+        {"idmember": 10, "idaccount": "EXT10", "category_id": "CAT1", "category_name": "GROCERIES",
          "idclient": "C1", "idcompany": "CO1", "period_yyyymm": p, "monthly_total": v}
         for p, v in zip(["2025-10", "2025-11", "2025-12"], [180.0, 200.0, 220.0])
     ]
     # Member 20: one category, 3 months ~300 each
     rows_20 = [
-        {"idmember": 20, "idaccount": "EXT20", "idcategory": "CAT1", "defaultcategory": "GROCERIES",
+        {"idmember": 20, "idaccount": "EXT20", "category_id": "CAT1", "category_name": "GROCERIES",
          "idclient": "C1", "idcompany": "CO1", "period_yyyymm": p, "monthly_total": v}
         for p, v in zip(["2025-10", "2025-11", "2025-12"], [280.0, 300.0, 320.0])
     ]
@@ -619,11 +619,11 @@ def test_TC4_golden_set_matches_output():
     # Build lookup: use idmember if available, otherwise idaccount
     if "idmember" in golden.columns:
         results_map = {
-            (str(r["idmember"]), r["category_id"], r["defaultcategory"]): r["suggested_amount"]
+            (str(r["idmember"]), r["category_id"], r["category_name"]): r["suggested_amount"]
             for r in results
         }
         for _, row in golden.iterrows():
-            key = (str(row["idmember"]), row["category_id"], row["defaultcategory"])
+            key = (str(row["idmember"]), row["category_id"], row["category_name"])
             assert key in results_map, f"Bucket {key} missing from output"
             expected = float(row["suggested_amount"])
             actual = results_map[key]
@@ -633,11 +633,11 @@ def test_TC4_golden_set_matches_output():
     else:
         # Legacy golden set without idmember
         results_map = {
-            (r["idmember"], r["category_id"], r["defaultcategory"]): r["suggested_amount"]
+            (r["idmember"], r["category_id"], r["category_name"]): r["suggested_amount"]
             for r in results
         }
         for _, row in golden.iterrows():
-            key = (row.get("idaccount", row.get("idmember")), row["category_id"], row["defaultcategory"])
+            key = (row.get("idaccount", row.get("idmember")), row["category_id"], row["category_name"])
             assert key in results_map, f"Bucket {key} missing from output"
             expected = float(row["suggested_amount"])
             actual = results_map[key]

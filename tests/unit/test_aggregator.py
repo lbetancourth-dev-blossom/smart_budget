@@ -22,8 +22,8 @@ def test_aggregate_monthly_sum():
         "idcompany": ["CO1"] * 3,
         "idmember": [10, 10, 10],
         "idaccount": ["M1", "M1", "M1"],
-        "idcategory": ["5", "5", "5"],
-        "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES"],
+        "category_id": ["5", "5", "5"],
+        "category_name": ["GROCERIES", "GROCERIES", "GROCERIES"],
         "date": ["2025-01-05", "2025-01-15", "2025-02-10"],
         "amount": [100.0, 50.0, 200.0],
     })
@@ -43,8 +43,8 @@ def test_aggregate_monthly_clamp_negative():
         "idcompany": ["CO1"],
         "idmember": [10],
         "idaccount": ["M1"],
-        "idcategory": ["5"],
-        "defaultcategory": ["SHOPPING"],
+        "category_id": ["5"],
+        "category_name": ["SHOPPING"],
         "date": ["2025-03-10"],
         "amount": [-50.0],  # REF > expense
     })
@@ -63,15 +63,15 @@ def test_zero_fill_inserts_missing_months():
         "idcompany": ["CO1", "CO1"],
         "idmember": [10, 10],
         "idaccount": ["M1", "M1"],
-        "idcategory": ["5", "5"],
-        "defaultcategory": ["GROCERIES", "GROCERIES"],
+        "category_id": ["5", "5"],
+        "category_name": ["GROCERIES", "GROCERIES"],
         "period_yyyymm": ["2025-01", "2025-03"],
         "monthly_total": [100.0, 80.0],
     })
     result = zero_fill(df)
     feb = result[
         (result["idmember"] == 10) &
-        (result["defaultcategory"] == "GROCERIES") &
+        (result["category_name"] == "GROCERIES") &
         (result["period_yyyymm"] == "2025-02")
     ]
     assert len(feb) == 1
@@ -87,16 +87,16 @@ def test_apply_gating_excludes_low_data_buckets():
     df = pd.DataFrame({
         "idmember": [10] * 5,
         "idaccount": ["M1"] * 5,
-        "idcategory": ["5", "5", "5", "9", "9"],
-        "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES", "DINING", "DINING"],
+        "category_id": ["5", "5", "5", "9", "9"],
+        "category_name": ["GROCERIES", "GROCERIES", "GROCERIES", "DINING", "DINING"],
         "period_yyyymm": ["2025-01", "2025-02", "2025-03", "2025-01", "2025-02"],
         "monthly_total": [100.0, 80.0, 90.0, 50.0, 60.0],
         "idclient": ["C1"] * 5,
         "idcompany": ["CO1"] * 5,
     })
     result = apply_gating(df, min_months=3)
-    assert set(result["defaultcategory"].unique()) == {"GROCERIES"}
-    assert "DINING" not in result["defaultcategory"].values
+    assert set(result["category_name"].unique()) == {"GROCERIES"}
+    assert "DINING" not in result["category_name"].values
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +108,8 @@ def test_apply_gating_zero_months_dont_count():
     df = pd.DataFrame({
         "idmember": [10] * 3,
         "idaccount": ["M1"] * 3,
-        "idcategory": ["5"] * 3,
-        "defaultcategory": ["GROCERIES"] * 3,
+        "category_id": ["5"] * 3,
+        "category_name": ["GROCERIES"] * 3,
         "period_yyyymm": ["2025-01", "2025-02", "2025-03"],
         "monthly_total": [100.0, 0.0, 80.0],  # Feb is zero-filled
         "idclient": ["C1"] * 3,
@@ -133,7 +133,7 @@ def test_prepare_smart_budget_data_end_to_end():
     result = prepare_smart_budget_data(filtered, min_months=3)
     # Output column contract: idmember replaces idaccount in output
     expected_cols = {
-        "idclient", "idcompany", "idmember", "idcategory", "defaultcategory",
+        "idclient", "idcompany", "idmember", "category_id", "category_name",
         "period_yyyymm", "monthly_total",
     }
     assert expected_cols.issubset(set(result.columns))
@@ -141,7 +141,7 @@ def test_prepare_smart_budget_data_end_to_end():
     # All remaining buckets have >= 3 months with data
     if len(result) > 0:
         counts = result[result["monthly_total"] > 0].groupby(
-            ["idmember", "defaultcategory"]
+            ["idmember", "category_name"]
         )["period_yyyymm"].nunique()
         assert (counts >= 3).all()
 
@@ -177,8 +177,8 @@ def test_TC_T3_1_aggregate_monthly_includes_idmember():
         "idcompany": ["CO1", "CO1"],
         "idmember": [10, 10],
         "idaccount": ["EXT2", "EXT2"],
-        "idcategory": ["5", "5"],
-        "defaultcategory": ["GROCERIES", "GROCERIES"],
+        "category_id": ["5", "5"],
+        "category_name": ["GROCERIES", "GROCERIES"],
         "date": ["2025-01-05", "2025-01-15"],
         "amount": [100.0, 50.0],
     })
@@ -201,8 +201,8 @@ def test_TC_T3_2_zero_fill_validates_idmember_uniqueness():
         "idcompany": ["CO1", "CO1"],
         "idmember": [10, 10],
         "idaccount": ["EXT2", "EXT3"],
-        "idcategory": ["5", "5"],
-        "defaultcategory": ["GROCERIES", "GROCERIES"],
+        "category_id": ["5", "5"],
+        "category_name": ["GROCERIES", "GROCERIES"],
         "period_yyyymm": ["2025-01", "2025-01"],
         "monthly_total": [100.0, 80.0],
     })
@@ -228,8 +228,8 @@ def test_TC_T3_3_zero_fill_preserves_idmember_in_grid():
         "idcompany": ["CO1"] * 6,
         "idmember": [10, 10, 10, 20, 20, 20],
         "idaccount": ["EXT2", "EXT2", "EXT2", "EXT22", "EXT22", "EXT22"],
-        "idcategory": ["5", "9", "9", "5", "5", "9"],
-        "defaultcategory": ["GROCERIES", "DINING", "DINING", "GROCERIES", "GROCERIES", "DINING"],
+        "category_id": ["5", "9", "9", "5", "5", "9"],
+        "category_name": ["GROCERIES", "DINING", "DINING", "GROCERIES", "GROCERIES", "DINING"],
         "period_yyyymm": ["2025-01", "2025-01", "2025-02", "2025-01", "2025-02", "2025-03"],
         "monthly_total": [100.0, 50.0, 60.0, 80.0, 90.0, 70.0],
     })
@@ -258,8 +258,8 @@ def test_TC_T3_4_apply_gating_uses_idmember_grain():
                 "idcompany": "CO1",
                 "idmember": 10,
                 "idaccount": account,
-                "idcategory": "5",
-                "defaultcategory": "GROCERIES",
+                "category_id": "5",
+                "category_name": "GROCERIES",
                 "period_yyyymm": period,
                 "monthly_total": 100.0,
             })
@@ -267,8 +267,8 @@ def test_TC_T3_4_apply_gating_uses_idmember_grain():
 
     result = apply_gating(df, min_months=2)
 
-    # Should have 1 unique (idclient, idcompany, idmember, defaultcategory) bucket
-    unique_buckets = result[["idclient", "idcompany", "idmember", "defaultcategory"]].drop_duplicates()
+    # Should have 1 unique (idclient, idcompany, idmember, category_name) bucket
+    unique_buckets = result[["idclient", "idcompany", "idmember", "category_name"]].drop_duplicates()
     assert len(unique_buckets) == 1, (
         f"Expected 1 unique (idclient, idcompany, idmember, category) bucket, got {len(unique_buckets)}"
     )
@@ -291,8 +291,8 @@ def test_TC_T3_5_apply_gating_prevents_cross_company_mixing():
             "idcompany": "CO1",
             "idmember": 10,
             "idaccount": "EXT2",
-            "idcategory": "5",
-            "defaultcategory": "GROCERIES",
+            "category_id": "5",
+            "category_name": "GROCERIES",
             "period_yyyymm": period,
             "monthly_total": 100.0,
         })
@@ -302,8 +302,8 @@ def test_TC_T3_5_apply_gating_prevents_cross_company_mixing():
         "idcompany": "CO2",
         "idmember": 10,
         "idaccount": "EXT2",
-        "idcategory": "5",
-        "defaultcategory": "GROCERIES",
+        "category_id": "5",
+        "category_name": "GROCERIES",
         "period_yyyymm": "2025-01",
         "monthly_total": 100.0,
     })
