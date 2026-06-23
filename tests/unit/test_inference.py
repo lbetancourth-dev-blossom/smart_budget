@@ -182,23 +182,20 @@ def test_inference_output_fn():
 
 def test_TC_T5_7_predict_fn_calls_athena_loader_not_csv(tmp_path):
     """
-    Arrange: patch both athena_loader functions and smart_budget.loader.load_history_by_member.
+    Arrange: patch athena_loader functions.
     Act: call predict_fn.
-    Assert: athena loader IS invoked; CSV loader is NOT invoked.
+    Assert: athena loader IS invoked (CSV loader removed in DATA-1275).
     """
     from src.sagemaker.inference import predict_fn
-    from smart_budget.athena_loader import AthenaQueryError  # noqa: F401
 
     history_df = _make_history_df(idmember="99", n_months=3, categories=("Groceries",))
     data = {"idmember": "99", "period_id": "2026-05"}
 
     with patch("smart_budget.athena_loader.load_history_by_member_athena", return_value=history_df) as mock_athena, \
-         patch("smart_budget.athena_loader.member_exists_athena", return_value=True), \
-         patch("smart_budget.loader.load_history_by_member") as mock_csv:
+         patch("smart_budget.athena_loader.member_exists_athena", return_value=True):
         predict_fn(data, str(tmp_path))
 
     mock_athena.assert_called_once()
-    mock_csv.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
