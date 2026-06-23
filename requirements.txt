@@ -8,3 +8,4 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
 httpx>=0.23.0
 sagemaker>=2.200.0
+pyathena>=3.0,<4

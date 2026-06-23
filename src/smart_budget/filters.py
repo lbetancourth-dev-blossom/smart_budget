@@ -1,4 +1,5 @@
 """src/smart_budget/filters.py — Transaction filtering rules for Smart Budget."""
+
 # TODO(prod): add T&C gate (membertacacceptance) before processing — deferred for dev/alpha
 import pandas as pd
 
@@ -49,7 +50,11 @@ def filter_transactions(df: pd.DataFrame) -> pd.DataFrame:
     is_sub = df["idtransaction"].str.startswith("SUB")
     is_ext = df["idtransaction"].str.startswith("EXT")
 
-    sub_invalid = is_sub & df["status"].notna() & df["status"].str.upper().isin(["PENDING", "HOLD"])
+    sub_invalid = (
+        is_sub
+        & df["status"].notna()
+        & df["status"].str.upper().isin(["PENDING", "HOLD"])
+    )
     ext_invalid = is_ext & (df["status"].str.upper() != "POSTED")
 
     df = df[~(sub_invalid | ext_invalid)]

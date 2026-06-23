@@ -20,7 +20,7 @@ Retorna la sugerencia de presupuesto para un miembro, categoría y período dado
 | Param | Tipo | Valores válidos | Descripción |
 |---|---|---|---|
 | `idaccount` | `IdAccount` (Enum) | EXT1, EXT2, SYN1… / INT* | ID de cuenta del miembro |
-| `defaultcategory` | `Category` (Enum) | Food, Transport, Entertainment… | Categoría de gasto |
+| `category_id` | `int` | ID numérico de categoría | ID de categoría de gasto (de `smart_budget_transactions`) |
 | `period_id` | `PeriodId` (Enum) | 2025-10, 2025-11 … 2026-05 | Período target en formato YYYY-MM |
 
 **Respuestas:**

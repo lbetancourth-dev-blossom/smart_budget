@@ -22,29 +22,37 @@ if _SCRIPTS_DIR not in sys.path:
 # ---------------------------------------------------------------------------
 
 
-def _make_actuals_df(accounts, category_ids, defaultcategories, monthly_totals):
+def _make_actuals_df(
+    members=None,
+    category_ids=None,
+    defaultcategories=None,
+    monthly_totals=None,
+    accounts=None,
+):
     """Build a minimal actuals_df with the 4 required columns."""
+    # Acepta 'accounts' como alias de 'members' para compatibilidad con llamadas anteriores
+    effective_members = accounts if accounts is not None else members
     return pd.DataFrame(
         {
-            "idaccount": accounts,
-            "idcategory": category_ids,
-            "defaultcategory": defaultcategories,
+            "idmember": effective_members,
+            "category_id": category_ids,
+            "category_name": defaultcategories,
             "monthly_total": monthly_totals,
         }
     )
 
 
 def _make_suggestion(
-    idaccount: str,
+    idmember: str,
     category_id: str,
-    defaultcategory: str,
+    category_name: str,
     suggested_amount,
 ) -> dict:
     """Build a minimal suggestion dict matching model.py output structure."""
     return {
-        "idaccount": idaccount,
+        "idmember": idmember,
         "category_id": category_id,
-        "defaultcategory": defaultcategory,
+        "category_name": category_name,
         "suggested_amount": suggested_amount,
         "idclient": "cli1",
         "idcompany": "co1",
@@ -84,9 +92,10 @@ def _make_test_train_df() -> pd.DataFrame:
                     {
                         "idclient": "cli1",
                         "idcompany": "co1",
+                        "idmember": acc,
                         "idaccount": acc,
-                        "idcategory": cat_id,
-                        "defaultcategory": cat_name,
+                        "category_id": cat_id,
+                        "category_name": cat_name,
                         "period_yyyymm": month,
                         "monthly_total": value,
                     }
@@ -95,21 +104,21 @@ def _make_test_train_df() -> pd.DataFrame:
 
 
 def _make_test_actuals_df() -> pd.DataFrame:
-    """9 actuals rows — one per (account × category) bucket in _make_test_train_df."""
-    accounts = ["acc1", "acc2", "acc3"]
+    """9 actuals rows — one per (member × category) bucket in _make_test_train_df."""
+    members = ["acc1", "acc2", "acc3"]
     categories = [
         ("cat1", "Food & Dining"),
         ("cat2", "Gas"),
         ("cat3", "Travel & Trips"),
     ]
     records = []
-    for acc in accounts:
+    for mem in members:
         for cat_id, cat_name in categories:
             records.append(
                 {
-                    "idaccount": acc,
-                    "idcategory": cat_id,
-                    "defaultcategory": cat_name,
+                    "idmember": mem,
+                    "category_id": cat_id,
+                    "category_name": cat_name,
                     "monthly_total": 150.0,
                 }
             )

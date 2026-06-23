@@ -11,17 +11,23 @@ Scripts de extracción de datos del datalake S3, construcción de `fact_transact
 ```
 scripts/
 ├── extract_datalake_to_csv.py      → S3 Parquet → CSV local
-├── build_fact_transactions.py      → OLB + DOUGH silver → fact_transactions.csv
+├── build_fact_transactions.py      → OLB + DOUGH silver → fact_transactions.csv  [LEGACY — ver nota]
 ├── run_smart_budget_prep.py        → filter + aggregate + gating → smart_budget_prep.csv
 ├── run_methods.py                  → CLI: calcula sugerencias por método → results.json
 └── generate_synthetic_dataset.py   → genera datos sintéticos para dev/testing
 ```
 
+> **LEGACY (post-DATA-1275):** `extract_smart_budget_monthly.py` y `build_fact_transactions.py --source db`
+> están deprecados tras la migración a Athena/Glue. El endpoint ahora consulta
+> `dlh_gold_dough_dev.smart_budget_transactions` directamente via `src/smart_budget/athena_loader.py`.
+> Estos scripts se mantienen solo para referencia y pipelines locales de desarrollo.
+
 ## Key files
 
 - `run_methods.py` — CLI principal del modelo; acepta `--method wma|ewma|median|holt_winters`
-- `build_fact_transactions.py` — une OLB (SUB/LOAN) + DOUGH (EXT) con categorías
+- `build_fact_transactions.py` — une OLB (SUB/LOAN) + DOUGH (EXT) con categorías **(LEGACY post-DATA-1275)**
 - `extract_datalake_to_csv.py` — autenticación SSO, descarga Parquet, escribe CSV con `chmod 600`
+- `src/smart_budget/athena_loader.py` — **nuevo (DATA-1275)**: carga datos live desde Athena/Glue via pyathena
 
 ## Conventions
 

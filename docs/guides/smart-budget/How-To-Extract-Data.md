@@ -10,7 +10,31 @@ last_updated: 2026-05-20
 
 # Cómo extraer datos del datalake para Smart Budget
 
-Guía completa del flujo de extracción: desde S3 (raw) hasta `smart_budget_prep.csv`
+> ⚠️ **LEGACY:** Este pipeline (S3 → CSV → fact_transactions) es la fuente histórica de datos.
+> Post-DATA-1275, la nueva fuente recomendada es Athena. Ver [[How-To-Query-Athena]].
+
+---
+
+## Extracción vía Athena (recomendado, post-DATA-1275)
+
+Para el endpoint y el modelo en producción, usar el loader de Athena directamente:
+
+```python
+from smart_budget.athena_loader import load_history_by_member_athena
+
+# Conecta automáticamente usando env vars ATHENA_*
+df = load_history_by_member_athena(idmember="18973")
+# Retorna: idmember, idclient, idcompany, idaccount, category_id, category_name,
+#          period_yyyymm, monthly_total
+```
+
+Ver [[How-To-Query-Athena]] para configuración completa, variables de entorno y troubleshooting.
+
+---
+
+## Legacy / Batch pipeline
+
+Guía completa del flujo de extracción batch: desde S3 (raw) hasta `smart_budget_prep.csv`
 (datos listos para el modelo). Incluye todas las reglas de filtrado obligatorias
 y los criterios de inclusión/exclusión aplicados en cada etapa.
 

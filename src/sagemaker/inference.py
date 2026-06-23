@@ -28,9 +28,6 @@ _TREATMENT = "B"
 _LOOKBACK = 3
 _MIN_MONTHS_GATING = 2
 
-# Nombre del CSV bundleado en el tarball (igual en dev y alpha — se empaca con este nombre)
-_DATA_CSV = "smart_budget_data.csv"
-
 
 def model_fn(model_dir: str):
     """
@@ -81,38 +78,50 @@ def input_fn(input_data: str, content_type: str) -> dict:
 
 def predict_fn(data: dict, model: str) -> dict:
     """
-    Ejecuta load_history_by_member → apply_gating → compute_budget_suggestions.
+    Ejecuta load_history_by_member_athena → apply_gating → compute_budget_suggestions.
 
-    Retorna todas las categorías del miembro con sugerencias calculadas.
+    Los datos se consultan en vivo desde Athena por cada request — no se usa CSV bundleado.
 
     Args:
         data: dict con idmember y period_id.
-        model: base_dir str retornado por model_fn.
+        model: base_dir str retornado por model_fn (ya no se usa para datos).
 
     Returns:
         dict con MemberSuggestionResponse completo (todas las categorías).
 
     Raises:
-        ValueError: si idmember no existe en los datos del modelo.
+        ValueError: si idmember no existe en Athena o si el datalake falla.
     """
     import pandas as pd
 
     from smart_budget.aggregator import apply_gating
-    from smart_budget.loader import load_history_by_member, member_exists
+    from smart_budget.athena_loader import (
+        AthenaQueryError,
+        load_history_by_member_athena,
+        member_exists_athena,
+    )
     from smart_budget.model import compute_budget_suggestions
 
     idmember = data["idmember"]
     period_id = data["period_id"]
 
-    base_dir = Path(model) / "data"
     reference_date = str(pd.Period(period_id, freq="M") - 1)
 
-    history = load_history_by_member(idmember, base_dir, csv_name=_DATA_CSV)
+    try:
+        history = load_history_by_member_athena(idmember=idmember)
+    except AthenaQueryError as e:
+        raise ValueError("datalake temporarily unavailable") from e
 
     if history.empty:
-        if not member_exists(idmember, base_dir, csv_name=_DATA_CSV):
+        try:
+            exists = member_exists_athena(idmember=idmember)
+        except AthenaQueryError as e:
+            raise ValueError("datalake temporarily unavailable") from e
+        if not exists:
             raise ValueError(f"idmember not found: {idmember!r}")
-        return _empty_response(idmember, "", "", period_id, "No hay datos para este miembro.")
+        return _empty_response(
+            idmember, "", "", period_id, "No hay datos para este miembro."
+        )
 
     idclient = str(history["idclient"].iloc[0])
     idcompany = str(history["idcompany"].iloc[0])
@@ -121,7 +130,10 @@ def predict_fn(data: dict, model: str) -> dict:
 
     if gated.empty:
         return _empty_response(
-            idmember, idclient, idcompany, period_id,
+            idmember,
+            idclient,
+            idcompany,
+            period_id,
             "Not enough history. At least 2 months of data required.",
         )
 
@@ -135,7 +147,10 @@ def predict_fn(data: dict, model: str) -> dict:
 
     if not results:
         return _empty_response(
-            idmember, idclient, idcompany, period_id,
+            idmember,
+            idclient,
+            idcompany,
+            period_id,
             "Not enough history for the requested period.",
         )
 
@@ -143,26 +158,40 @@ def predict_fn(data: dict, model: str) -> dict:
     total = 0.0
     for r in results:
         basis_raw = r.get("basis") or {}
-        cat = r.get("defaultcategory", "")
-        cat_history = gated[gated["defaultcategory"] == cat] if cat else pd.DataFrame()
+        cat_id = r.get("category_id", "")
+        cat_name = r.get("category_name", "")
+        cat_history = (
+            gated[gated["category_name"] == cat_name] if cat_name else pd.DataFrame()
+        )
         amount = r.get("suggested_amount")
         if amount is not None:
             total += amount
-        suggestions.append({
-            "defaultcategory": cat,
-            "suggested_amount": round(amount, 2) if amount is not None else None,
-            "confidence": r.get("confidence"),
-            "basis": {
-                "months_analyzed": basis_raw.get("months_analyzed", 0),
-                "months_with_positive_spend": basis_raw.get("months_with_positive_spend", 0),
-                "period_range": basis_raw.get("period_range", ""),
-                "method": basis_raw.get("method", _METHOD),
-                "treatment": basis_raw.get("treatment", _TREATMENT),
-            } if basis_raw else None,
-            "amount_by_month": _build_amount_by_month(cat_history, reference_date, _LOOKBACK),
-            "display_label": r.get("display_label", ""),
-            "model_version": r.get("model_version", "fase0-v1"),
-        })
+        suggestions.append(
+            {
+                "category_id": cat_id,
+                "category_name": cat_name,
+                "suggested_amount": round(amount, 2) if amount is not None else None,
+                "confidence": r.get("confidence"),
+                "basis": (
+                    {
+                        "months_analyzed": basis_raw.get("months_analyzed", 0),
+                        "months_with_positive_spend": basis_raw.get(
+                            "months_with_positive_spend", 0
+                        ),
+                        "period_range": basis_raw.get("period_range", ""),
+                        "method": basis_raw.get("method", _METHOD),
+                        "treatment": basis_raw.get("treatment", _TREATMENT),
+                    }
+                    if basis_raw
+                    else None
+                ),
+                "amount_by_month": _build_amount_by_month(
+                    cat_history, reference_date, _LOOKBACK
+                ),
+                "display_label": r.get("display_label", ""),
+                "model_version": r.get("model_version", "fase0-v1"),
+            }
+        )
 
     return {
         "idmember": idmember,
@@ -183,6 +212,7 @@ def output_fn(prediction: dict, accept: str) -> str:
 # ---------------------------------------------------------------------------
 # Helpers internos
 # ---------------------------------------------------------------------------
+
 
 def _empty_response(
     idmember: str, idclient: str, idcompany: str, period_id: str, message: str
@@ -217,4 +247,3 @@ def _build_amount_by_month(history, reference_date: str, lookback_months: int) -
     window = history.loc[mask].groupby("period_yyyymm")["monthly_total"].sum()
     all_periods = [str(window_start + i) for i in range(lookback_months)]
     return {p: round(float(window.get(p, 0.0)), 2) for p in all_periods}
-

@@ -12,6 +12,7 @@ Usage:
 
 Output is a JSON list of suggestion dicts, written to --output or stdout.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -22,7 +23,9 @@ import sys
 import uuid
 
 # Allow running directly: python scripts/run_methods.py
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+)
 
 import pandas as pd
 import structlog
@@ -107,11 +110,15 @@ def _normalize_reference_date(value: str) -> str:
     """Acepta YYYY-MM o YYYY-MM-DD y devuelve siempre YYYY-MM."""
     parts = value.strip().split("-")
     if len(parts) < 2:
-        raise ValueError(f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM")
+        raise ValueError(
+            f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM"
+        )
     try:
         year, month = int(parts[0]), int(parts[1])
     except ValueError:
-        raise ValueError(f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM")
+        raise ValueError(
+            f"--reference-date inválido: {value!r}. Formato esperado: YYYY-MM"
+        )
     if year < 2000 or month < 1 or month > 12:
         raise ValueError(f"--reference-date fuera de rango: {value!r}")
     return f"{year:04d}-{month:02d}"
@@ -154,7 +161,10 @@ def main(argv=None):
 
     # Warn if idmember is not in results (backward-compat check)
     if results and "idmember" not in results[0]:
-        log.warning("run_methods.idmember_missing", hint="Results do not contain idmember — check pipeline input")
+        log.warning(
+            "run_methods.idmember_missing",
+            hint="Results do not contain idmember — check pipeline input",
+        )
 
     # Step 4: serialize
     output_json = json.dumps(results, indent=2, ensure_ascii=False)
@@ -171,10 +181,16 @@ def main(argv=None):
     n_members = len(set(r.get("idmember", r.get("idaccount", "?")) for r in results))
     finished_at = datetime.datetime.utcnow().isoformat() + "Z"
 
-    log.info("run_methods.done", n_suggestions=n_suggestions, n_null_suggestions=n_null, n_members=n_members)
+    log.info(
+        "run_methods.done",
+        n_suggestions=n_suggestions,
+        n_null_suggestions=n_null,
+        n_members=n_members,
+    )
 
     # Structured audit log for compliance/traceability (DATA-1179)
     from smart_budget.model import _MODEL_VERSION  # noqa: PLC0415
+
     log.info(
         "run_methods.audit",
         job_id=job_id,
