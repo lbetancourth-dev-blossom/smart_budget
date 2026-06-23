@@ -23,6 +23,11 @@ Athena reemplaza el pipeline batch de S3/PostgreSQL como fuente de datos para el
 | Base de datos | `dlh_gold_dough_dev` |
 | Tabla | `smart_budget_transactions` |
 | URI completo | `dlh_gold_dough_dev.smart_budget_transactions` |
+| Query DE (fuente canónica) | [`dwh_dough/QA scripts/category_expenditure_per_month.sql`](https://github.com/homecu/dwh_dough/blob/main/QA%20scripts/category_expenditure_per_month.sql) |
+| Copia local (referencia) | `src/smart_budget/queries/smart_budget_monthly_spend.sql` |
+
+> La tabla es materializada por Data Engineering (Dough). La query canónica vive en el repo **homecu/dwh_dough**.
+> La copia local en este repo es solo de referencia — **no modificar sin coordinar con el equipo DE**.
 
 ### Columnas disponibles
 
@@ -122,12 +127,13 @@ df = load_history_by_member_athena(idmember="18973")
 La tabla `smart_budget_transactions` ya viene pre-filtrada por el pipeline de Data Engineering.
 **No aplicar filtros adicionales** — hacerlo produce resultados incorrectos.
 
-Los filtros aplicados upstream son:
+Los filtros aplicados upstream (definidos en la [query canónica de DE](https://github.com/homecu/dwh_dough/blob/main/QA%20scripts/category_expenditure_per_month.sql)) son:
 
 - Solo gastos (`expenditure`) — ingresos excluidos
 - Transacciones LOAN excluidas
-- Transacciones PENDING excluidas
-- Sin soft deletes
+- Transacciones PENDING/HOLD excluidas
+- Sin soft deletes (`deletedat IS NULL`)
+- Solo transacciones `POSTED` para fuentes EXT
 
 > Para entender la lógica de filtrado completa, ver [[How-To-Extract-Data]] — Reglas de filtrado (sección legacy).
 
