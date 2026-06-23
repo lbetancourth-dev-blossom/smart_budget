@@ -105,9 +105,9 @@ def write_atomic(df: pd.DataFrame, path: Path) -> None:
     """
     tmp = Path(str(path) + f".{os.getpid()}.tmp")  # SC-2: PID suffix
     df.to_csv(tmp, index=False)
-    os.chmod(tmp, 0o600)                             # SC-3: secure .tmp before replace
+    os.chmod(tmp, 0o600)  # SC-3: secure .tmp before replace
     os.replace(tmp, path)
-    os.chmod(path, 0o600)                            # double-secure final file
+    os.chmod(path, 0o600)  # double-secure final file
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 """tests/unit/test_filters.py — Unit tests for smart_budget.filters (TC-2.1 through TC-2.8)."""
+
 import pytest
 import pandas as pd
 
@@ -10,15 +11,18 @@ from tests.conftest import _load_fixture
 # TC-2.1 — Soft-delete exclusion
 # ---------------------------------------------------------------------------
 
+
 def test_filter_removes_soft_deleted():
-    df = pd.DataFrame({
-        "deletedat": [None, "2025-01-01", None],
-        "incomeexpenditure": ["expenditure", "expenditure", "expenditure"],
-        "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES"],
-        "idtransaction": ["SUB1", "SUB2", "SUB3"],
-        "status": [None, None, None],
-        "amount": [100.0, 50.0, 80.0],
-    })
+    df = pd.DataFrame(
+        {
+            "deletedat": [None, "2025-01-01", None],
+            "incomeexpenditure": ["expenditure", "expenditure", "expenditure"],
+            "defaultcategory": ["GROCERIES", "GROCERIES", "GROCERIES"],
+            "idtransaction": ["SUB1", "SUB2", "SUB3"],
+            "status": [None, None, None],
+            "amount": [100.0, 50.0, 80.0],
+        }
+    )
     result = filter_transactions(df)
     assert len(result) == 2
     assert "SUB2" not in result["idtransaction"].values
@@ -28,15 +32,18 @@ def test_filter_removes_soft_deleted():
 # TC-2.2 — Income exclusion
 # ---------------------------------------------------------------------------
 
+
 def test_filter_removes_income_transactions():
-    df = pd.DataFrame({
-        "deletedat": [None, None, None],
-        "incomeexpenditure": ["expenditure", "income", "expenditure"],
-        "defaultcategory": ["GROCERIES", "SALARY", "DINING"],
-        "idtransaction": ["SUB1", "SUB2", "SUB3"],
-        "status": [None, None, None],
-        "amount": [100.0, 2000.0, 50.0],
-    })
+    df = pd.DataFrame(
+        {
+            "deletedat": [None, None, None],
+            "incomeexpenditure": ["expenditure", "income", "expenditure"],
+            "defaultcategory": ["GROCERIES", "SALARY", "DINING"],
+            "idtransaction": ["SUB1", "SUB2", "SUB3"],
+            "status": [None, None, None],
+            "amount": [100.0, 2000.0, 50.0],
+        }
+    )
     result = filter_transactions(df)
     assert len(result) == 2
     assert "income" not in result["incomeexpenditure"].values
@@ -46,16 +53,19 @@ def test_filter_removes_income_transactions():
 # TC-2.3 — Invalid category exclusion
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("category", ["UNCATEGORIZED", None, "INCOME", "MONEY_SENT"])
 def test_filter_removes_invalid_categories(category):
-    df = pd.DataFrame({
-        "deletedat": [None, None],
-        "incomeexpenditure": ["expenditure", "expenditure"],
-        "defaultcategory": [category, "GROCERIES"],
-        "idtransaction": ["SUB1", "SUB2"],
-        "status": [None, None],
-        "amount": [100.0, 80.0],
-    })
+    df = pd.DataFrame(
+        {
+            "deletedat": [None, None],
+            "incomeexpenditure": ["expenditure", "expenditure"],
+            "defaultcategory": [category, "GROCERIES"],
+            "idtransaction": ["SUB1", "SUB2"],
+            "status": [None, None],
+            "amount": [100.0, 80.0],
+        }
+    )
     result = filter_transactions(df)
     assert len(result) == 1
     assert result.iloc[0]["defaultcategory"] == "GROCERIES"
@@ -65,15 +75,18 @@ def test_filter_removes_invalid_categories(category):
 # TC-2.4 — OLB PENDING exclusion + LOAN exclusion
 # ---------------------------------------------------------------------------
 
+
 def test_filter_removes_olb_pending():
-    df = pd.DataFrame({
-        "deletedat": [None, None, None],
-        "incomeexpenditure": ["expenditure"] * 3,
-        "defaultcategory": ["GROCERIES"] * 3,
-        "idtransaction": ["SUB1", "SUB2", "LOAN1"],
-        "status": [None, "PENDING", None],
-        "amount": [100.0, 75.0, 200.0],
-    })
+    df = pd.DataFrame(
+        {
+            "deletedat": [None, None, None],
+            "incomeexpenditure": ["expenditure"] * 3,
+            "defaultcategory": ["GROCERIES"] * 3,
+            "idtransaction": ["SUB1", "SUB2", "LOAN1"],
+            "status": [None, "PENDING", None],
+            "amount": [100.0, 75.0, 200.0],
+        }
+    )
     result = filter_transactions(df)
     # SUB1 pasa (status None), SUB2 excluido (PENDING), LOAN1 excluido (Rule 4)
     assert len(result) == 1
@@ -84,15 +97,18 @@ def test_filter_removes_olb_pending():
 # TC-2.5 — External Dough (EXT/Plaid) only POSTED
 # ---------------------------------------------------------------------------
 
+
 def test_filter_external_only_posted():
-    df = pd.DataFrame({
-        "deletedat": [None, None, None],
-        "incomeexpenditure": ["expenditure"] * 3,
-        "defaultcategory": ["DINING"] * 3,
-        "idtransaction": ["EXT1", "EXT2", "EXT3"],
-        "status": ["POSTED", "PENDING", None],
-        "amount": [50.0, 80.0, 90.0],
-    })
+    df = pd.DataFrame(
+        {
+            "deletedat": [None, None, None],
+            "incomeexpenditure": ["expenditure"] * 3,
+            "defaultcategory": ["DINING"] * 3,
+            "idtransaction": ["EXT1", "EXT2", "EXT3"],
+            "status": ["POSTED", "PENDING", None],
+            "amount": [50.0, 80.0, 90.0],
+        }
+    )
     result = filter_transactions(df)
     assert len(result) == 1
     assert result.iloc[0]["idtransaction"] == "EXT1"
@@ -101,6 +117,7 @@ def test_filter_external_only_posted():
 # ---------------------------------------------------------------------------
 # TC-2.6 — Combined rules (realistic fixture)
 # ---------------------------------------------------------------------------
+
 
 def test_filter_combined_rules():
     """Fixture: rows covering all 6 rules; LOAN_VALID_1 excluido por Rule 4."""
@@ -114,23 +131,34 @@ def test_filter_combined_rules():
 # TC-2.8 — Unknown prefix passes through (no silent data loss)
 # ---------------------------------------------------------------------------
 
+
 def test_filter_unknown_prefix_passes_through():
     """Transactions with an unknown prefix (not SUB/LOAN/EXT) must not be silently dropped."""
-    df = pd.DataFrame({
-        "deletedat": [None, None],
-        "incomeexpenditure": ["expenditure", "expenditure"],
-        "defaultcategory": ["GROCERIES", "DINING"],
-        "idtransaction": ["ACH_001", "WIRE_002"],
-        "status": ["POSTED", None],
-        "amount": [120.0, 80.0],
-    })
+    df = pd.DataFrame(
+        {
+            "deletedat": [None, None],
+            "incomeexpenditure": ["expenditure", "expenditure"],
+            "defaultcategory": ["GROCERIES", "DINING"],
+            "idtransaction": ["ACH_001", "WIRE_002"],
+            "status": ["POSTED", None],
+            "amount": [120.0, 80.0],
+        }
+    )
     result = filter_transactions(df)
     assert len(result) == 2, "Unknown prefixes must not be excluded by status rules"
 
 
 def test_filter_empty_dataframe():
-    df = pd.DataFrame(columns=["deletedat", "incomeexpenditure", "defaultcategory",
-                                "idtransaction", "status", "amount"])
+    df = pd.DataFrame(
+        columns=[
+            "deletedat",
+            "incomeexpenditure",
+            "defaultcategory",
+            "idtransaction",
+            "status",
+            "amount",
+        ]
+    )
     result = filter_transactions(df)
     assert len(result) == 0
     assert isinstance(result, pd.DataFrame)

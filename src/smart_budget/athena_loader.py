@@ -4,6 +4,7 @@ Provee conexión lazy a Athena via pyathena y dos funciones públicas:
   - load_history_by_member_athena: consulta historial mensual por idmember.
   - member_exists_athena: verifica si el idmember tiene al menos un registro.
 """
+
 from __future__ import annotations
 
 import os
@@ -68,8 +69,14 @@ def load_history_by_member_athena(
         table: Tabla Athena (default: ATHENA_TABLE env o smart_budget_transactions).
     """
     _OUTPUT_COLS = [
-        "idclient", "idcompany", "idmember", "idaccount",
-        "category_id", "category_name", "period_yyyymm", "monthly_total",
+        "idclient",
+        "idcompany",
+        "idmember",
+        "idaccount",
+        "category_id",
+        "category_name",
+        "period_yyyymm",
+        "monthly_total",
     ]
 
     if conn is None:
@@ -95,7 +102,9 @@ def load_history_by_member_athena(
             idmember=idmember_str,
             error=str(e),
         )
-        raise AthenaQueryError(f"Athena query failed for idmember={idmember_str}: {e}") from e
+        raise AthenaQueryError(
+            f"Athena query failed for idmember={idmember_str}: {e}"
+        ) from e
 
     duration_ms = int((time.monotonic() - t0) * 1000)
 
@@ -111,7 +120,9 @@ def load_history_by_member_athena(
 
     # Post-procesado
     df["period_yyyymm"] = df["txn_month"].astype(str).str[:7]
-    df["monthly_total"] = pd.to_numeric(df["total_amount"], errors="coerce").fillna(0.0).clip(lower=0.0)
+    df["monthly_total"] = (
+        pd.to_numeric(df["total_amount"], errors="coerce").fillna(0.0).clip(lower=0.0)
+    )
     df["category_id"] = df["category_id"].astype(str)
     df["category_name"] = df["category_name"].astype(str)
     df["idmember"] = df["idmember"].astype(str)
@@ -148,15 +159,14 @@ def member_exists_athena(
     db = database or os.getenv("ATHENA_DATABASE", "dlh_gold_dough_dev")
     tbl = table or os.getenv("ATHENA_TABLE", "smart_budget_transactions")
 
-    sql = (
-        f"SELECT 1 FROM {db}.{tbl} "
-        f"WHERE idmember = %(idmember)s LIMIT 1"
-    )
+    sql = f"SELECT 1 FROM {db}.{tbl} " f"WHERE idmember = %(idmember)s LIMIT 1"
 
     idmember_str = str(idmember)
     try:
         df = pd.read_sql(sql, conn, params={"idmember": idmember_str})
     except Exception as e:
-        raise AthenaQueryError(f"Athena existence check failed for idmember={idmember_str}: {e}") from e
+        raise AthenaQueryError(
+            f"Athena existence check failed for idmember={idmember_str}: {e}"
+        ) from e
 
     return len(df) >= 1

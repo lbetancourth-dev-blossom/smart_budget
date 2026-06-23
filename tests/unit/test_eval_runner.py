@@ -22,7 +22,13 @@ if _SCRIPTS_DIR not in sys.path:
 # ---------------------------------------------------------------------------
 
 
-def _make_actuals_df(members=None, category_ids=None, defaultcategories=None, monthly_totals=None, accounts=None):
+def _make_actuals_df(
+    members=None,
+    category_ids=None,
+    defaultcategories=None,
+    monthly_totals=None,
+    accounts=None,
+):
     """Build a minimal actuals_df with the 4 required columns."""
     # Acepta 'accounts' como alias de 'members' para compatibilidad con llamadas anteriores
     effective_members = accounts if accounts is not None else members

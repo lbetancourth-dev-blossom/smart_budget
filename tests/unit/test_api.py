@@ -14,6 +14,7 @@ Casos de test:
   TC-API-8: Historial < 2 meses (gating) → 200 suggestions vacío
   TC-API-9: Respuesta incluye total_suggested y idmember (no idaccount)
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -23,6 +24,7 @@ from unittest.mock import patch
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 def _make_history_df(
     idmember=10,
@@ -36,16 +38,18 @@ def _make_history_df(
 ):
     """Construye un DataFrame de historial pre-agregado con grain idmember (schema Athena D4)."""
     periods = [f"2026-0{i}" for i in range(2, 2 + n_months)]
-    return pd.DataFrame({
-        "idclient": [idclient] * n_months,
-        "idcompany": [idcompany] * n_months,
-        "idmember": [idmember] * n_months,
-        "idaccount": [idaccount] * n_months,
-        "category_id": [category_id] * n_months,
-        "category_name": [category_name] * n_months,
-        "period_yyyymm": periods,
-        "monthly_total": [monthly_total] * n_months,
-    })
+    return pd.DataFrame(
+        {
+            "idclient": [idclient] * n_months,
+            "idcompany": [idcompany] * n_months,
+            "idmember": [idmember] * n_months,
+            "idaccount": [idaccount] * n_months,
+            "category_id": [category_id] * n_months,
+            "category_name": [category_name] * n_months,
+            "period_yyyymm": periods,
+            "monthly_total": [monthly_total] * n_months,
+        }
+    )
 
 
 def _make_client(tmp_path, monkeypatch):
@@ -54,12 +58,14 @@ def _make_client(tmp_path, monkeypatch):
     tmp_path.mkdir(exist_ok=True)
     from fastapi.testclient import TestClient
     from src.main import app
+
     return TestClient(app)
 
 
 # ---------------------------------------------------------------------------
 # TC-API-1 — Happy path: miembro con historial → 200 con array de sugerencias
 # ---------------------------------------------------------------------------
+
 
 def test_get_suggestion_happy_path_returns_200(tmp_path, monkeypatch):
     """
@@ -78,13 +84,21 @@ def test_get_suggestion_happy_path_returns_200(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    expected_keys = {"idmember", "idclient", "idcompany", "period_id", "total_suggested", "suggestions"}
+    expected_keys = {
+        "idmember",
+        "idclient",
+        "idcompany",
+        "period_id",
+        "total_suggested",
+        "suggestions",
+    }
     assert expected_keys.issubset(body.keys())
 
 
 # ---------------------------------------------------------------------------
 # TC-API-2 — suggested_amount siempre >= 0.0
 # ---------------------------------------------------------------------------
+
 
 def test_get_suggestion_suggested_amount_non_negative(tmp_path, monkeypatch):
     """
@@ -112,6 +126,7 @@ def test_get_suggestion_suggested_amount_non_negative(tmp_path, monkeypatch):
 # TC-API-3 — basis.method == "wma" y basis.treatment == "B"
 # ---------------------------------------------------------------------------
 
+
 def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
     """
     Arrange: idmember con 3 meses de historial.
@@ -137,6 +152,7 @@ def test_get_suggestion_basis_method_and_treatment(tmp_path, monkeypatch):
 # TC-API-4 — Campo "explanation" NO debe aparecer en la respuesta
 # ---------------------------------------------------------------------------
 
+
 def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
     """
     Arrange: idmember con 3 meses de historial.
@@ -160,6 +176,7 @@ def test_get_suggestion_explanation_not_in_response(tmp_path, monkeypatch):
 # TC-API-5 — Miembro no existe → 404
 # ---------------------------------------------------------------------------
 
+
 def test_get_suggestion_member_not_found_returns_404(tmp_path, monkeypatch):
     """
     Arrange: load_history_by_member vacío, member_exists=False.
@@ -168,8 +185,9 @@ def test_get_suggestion_member_not_found_returns_404(tmp_path, monkeypatch):
     """
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history_by_member_athena", return_value=pd.DataFrame()), \
-         patch("src.api.router.member_exists_athena", return_value=False):
+    with patch(
+        "src.api.router.load_history_by_member_athena", return_value=pd.DataFrame()
+    ), patch("src.api.router.member_exists_athena", return_value=False):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -182,6 +200,7 @@ def test_get_suggestion_member_not_found_returns_404(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # TC-API-6 — period_id con formato inválido → 422
 # ---------------------------------------------------------------------------
+
 
 def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
     """
@@ -203,6 +222,7 @@ def test_get_suggestion_invalid_period_id_returns_422(tmp_path, monkeypatch):
 # TC-API-7 — Miembro existe pero sin datos → 200 suggestions vacío
 # ---------------------------------------------------------------------------
 
+
 def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatch):
     """
     Arrange: load_history_by_member vacío, member_exists=True.
@@ -211,8 +231,9 @@ def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatc
     """
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history_by_member_athena", return_value=pd.DataFrame()), \
-         patch("src.api.router.member_exists_athena", return_value=True):
+    with patch(
+        "src.api.router.load_history_by_member_athena", return_value=pd.DataFrame()
+    ), patch("src.api.router.member_exists_athena", return_value=True):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -228,6 +249,7 @@ def test_get_suggestion_member_exists_no_data_returns_empty(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 # TC-API-8 — Historial < 2 meses (gating) → 200 null + mensaje
 # ---------------------------------------------------------------------------
+
 
 def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch):
     """
@@ -255,6 +277,7 @@ def test_get_suggestion_insufficient_months_returns_empty(tmp_path, monkeypatch)
 # TC-API-9 — Respuesta usa idmember (no idaccount) y tiene total_suggested
 # ---------------------------------------------------------------------------
 
+
 def test_get_suggestion_uses_idmember_not_idaccount(tmp_path, monkeypatch):
     """
     Assert: la respuesta contiene "idmember" y no contiene "idaccount" a nivel raíz.
@@ -280,6 +303,7 @@ def test_get_suggestion_uses_idmember_not_idaccount(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # TC-API-10 — Respuesta incluye category_id y category_name (D4)
 # ---------------------------------------------------------------------------
+
 
 def test_TC_API_10_response_includes_category_id_and_name(tmp_path, monkeypatch):
     """
@@ -311,6 +335,7 @@ def test_TC_API_10_response_includes_category_id_and_name(tmp_path, monkeypatch)
 # TC-API-11 — AthenaQueryError → 503 datalake temporarily unavailable
 # ---------------------------------------------------------------------------
 
+
 def test_TC_API_11_athena_error_returns_503(tmp_path, monkeypatch):
     """
     Arrange: load_history_by_member_athena raises AthenaQueryError("timeout").
@@ -321,7 +346,10 @@ def test_TC_API_11_athena_error_returns_503(tmp_path, monkeypatch):
 
     tc = _make_client(tmp_path, monkeypatch)
 
-    with patch("src.api.router.load_history_by_member_athena", side_effect=AthenaQueryError("timeout")):
+    with patch(
+        "src.api.router.load_history_by_member_athena",
+        side_effect=AthenaQueryError("timeout"),
+    ):
         response = tc.get(
             "/smart-budget/suggestion",
             params={"idmember": 10, "period_id": "2026-05"},
@@ -334,6 +362,7 @@ def test_TC_API_11_athena_error_returns_503(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # TC-API-12 — Respuesta no contiene clave defaultcategory (D4 clean break)
 # ---------------------------------------------------------------------------
+
 
 def test_TC_API_12_no_defaultcategory_in_response(tmp_path, monkeypatch):
     """
@@ -352,5 +381,6 @@ def test_TC_API_12_no_defaultcategory_in_response(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     import json
+
     response_text = json.dumps(response.json())
     assert "defaultcategory" not in response_text

@@ -3,12 +3,12 @@
 Tests for AthenaQueryError, _get_connection, load_history_by_member_athena,
 and member_exists_athena using mocked pyathena.
 """
+
 from __future__ import annotations
 
-import os
 import pandas as pd
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -28,9 +28,12 @@ def test_get_connection_uses_env_vars(monkeypatch):
     mock_conn = MagicMock()
 
     import smart_budget.athena_loader as loader_mod
+
     monkeypatch.setattr(loader_mod, "_CONN", None)
 
-    with patch("smart_budget.athena_loader.pyathena.connect", return_value=mock_conn) as mock_connect:
+    with patch(
+        "smart_budget.athena_loader.pyathena.connect", return_value=mock_conn
+    ) as mock_connect:
         result = loader_mod._get_connection()
 
     mock_connect.assert_called_once_with(
@@ -52,9 +55,12 @@ def test_get_connection_caches_result(monkeypatch):
     mock_conn = MagicMock()
 
     import smart_budget.athena_loader as loader_mod
+
     monkeypatch.setattr(loader_mod, "_CONN", None)
 
-    with patch("smart_budget.athena_loader.pyathena.connect", return_value=mock_conn) as mock_connect:
+    with patch(
+        "smart_budget.athena_loader.pyathena.connect", return_value=mock_conn
+    ) as mock_connect:
         r1 = loader_mod._get_connection()
         r2 = loader_mod._get_connection()
 
@@ -71,6 +77,7 @@ def test_get_connection_missing_staging_dir_raises(monkeypatch):
     monkeypatch.delenv("ATHENA_S3_STAGING_DIR", raising=False)
 
     import smart_budget.athena_loader as loader_mod
+
     monkeypatch.setattr(loader_mod, "_CONN", None)
 
     with pytest.raises(loader_mod.AthenaQueryError, match="ATHENA_S3_STAGING_DIR"):
@@ -84,16 +91,18 @@ def test_get_connection_missing_staging_dir_raises(monkeypatch):
 
 def _sample_raw_df(idmember="42", n=3):
     """Helper: raw DataFrame as returned by pd.read_sql (before post-processing)."""
-    return pd.DataFrame({
-        "idclient": ["1"] * n,
-        "idcompany": ["1"] * n,
-        "idmember": [idmember] * n,
-        "idaccount": ["ACC1"] * n,
-        "category_id": ["5"] * n,
-        "category_name": ["Groceries"] * n,
-        "txn_month": [f"2026-0{i+1}-01" for i in range(n)],
-        "total_amount": [100.0 + i * 10 for i in range(n)],
-    })
+    return pd.DataFrame(
+        {
+            "idclient": ["1"] * n,
+            "idcompany": ["1"] * n,
+            "idmember": [idmember] * n,
+            "idaccount": ["ACC1"] * n,
+            "category_id": ["5"] * n,
+            "category_name": ["Groceries"] * n,
+            "txn_month": [f"2026-0{i+1}-01" for i in range(n)],
+            "total_amount": [100.0 + i * 10 for i in range(n)],
+        }
+    )
 
 
 def test_load_history_happy_path(monkeypatch):
@@ -106,15 +115,23 @@ def test_load_history_happy_path(monkeypatch):
     raw_df = _sample_raw_df()
 
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=raw_df):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=raw_df
+    ):
         result = loader_mod.load_history_by_member_athena(idmember="42")
 
     expected_cols = {
-        "idclient", "idcompany", "idmember", "idaccount",
-        "category_id", "category_name", "period_yyyymm", "monthly_total",
+        "idclient",
+        "idcompany",
+        "idmember",
+        "idaccount",
+        "category_id",
+        "category_name",
+        "period_yyyymm",
+        "monthly_total",
     }
     assert set(result.columns) == expected_cols
     assert len(result.columns) == 8
@@ -129,21 +146,37 @@ def test_load_history_empty(monkeypatch):
     Act: call load_history_by_member_athena.
     Assert: result is empty with the 8-column schema.
     """
-    empty_raw = pd.DataFrame(columns=[
-        "idclient", "idcompany", "idmember", "idaccount",
-        "category_id", "category_name", "txn_month", "total_amount",
-    ])
+    empty_raw = pd.DataFrame(
+        columns=[
+            "idclient",
+            "idcompany",
+            "idmember",
+            "idaccount",
+            "category_id",
+            "category_name",
+            "txn_month",
+            "total_amount",
+        ]
+    )
 
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=empty_raw):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=empty_raw
+    ):
         result = loader_mod.load_history_by_member_athena(idmember="42")
 
     expected_cols = {
-        "idclient", "idcompany", "idmember", "idaccount",
-        "category_id", "category_name", "period_yyyymm", "monthly_total",
+        "idclient",
+        "idcompany",
+        "idmember",
+        "idaccount",
+        "category_id",
+        "category_name",
+        "period_yyyymm",
+        "monthly_total",
     }
     assert set(result.columns) == expected_cols
     assert len(result) == 0
@@ -156,16 +189,28 @@ def test_load_history_param_binding_safe(monkeypatch):
     Assert: pd.read_sql called with params={"idmember": "42'; DROP TABLE--"} (no interpolation).
     """
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
     dangerous_id = "42'; DROP TABLE--"
     raw_df = _sample_raw_df(idmember=dangerous_id, n=0)
-    raw_df = pd.DataFrame(columns=[
-        "idclient", "idcompany", "idmember", "idaccount",
-        "category_id", "category_name", "txn_month", "total_amount",
-    ])
+    raw_df = pd.DataFrame(
+        columns=[
+            "idclient",
+            "idcompany",
+            "idmember",
+            "idaccount",
+            "category_id",
+            "category_name",
+            "txn_month",
+            "total_amount",
+        ]
+    )
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn) as _mock_get, \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=raw_df) as mock_read_sql:
+    with patch.object(
+        loader_mod, "_get_connection", return_value=mock_conn
+    ) as _mock_get, patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=raw_df
+    ) as mock_read_sql:
         loader_mod.load_history_by_member_athena(idmember=dangerous_id)
 
     _, kwargs = mock_read_sql.call_args
@@ -178,22 +223,26 @@ def test_load_history_clamps_negative_total(monkeypatch):
     Act: call load_history_by_member_athena.
     Assert: monthly_total == 0.0 (clamped).
     """
-    raw_df = pd.DataFrame({
-        "idclient": ["1"],
-        "idcompany": ["1"],
-        "idmember": ["42"],
-        "idaccount": ["ACC1"],
-        "category_id": ["5"],
-        "category_name": ["Groceries"],
-        "txn_month": ["2026-01-01"],
-        "total_amount": [-50.0],
-    })
+    raw_df = pd.DataFrame(
+        {
+            "idclient": ["1"],
+            "idcompany": ["1"],
+            "idmember": ["42"],
+            "idaccount": ["ACC1"],
+            "category_id": ["5"],
+            "category_name": ["Groceries"],
+            "txn_month": ["2026-01-01"],
+            "total_amount": [-50.0],
+        }
+    )
 
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=raw_df):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=raw_df
+    ):
         result = loader_mod.load_history_by_member_athena(idmember="42")
 
     assert result["monthly_total"].iloc[0] == 0.0
@@ -209,14 +258,24 @@ def test_load_history_uses_env_db_table(monkeypatch):
     monkeypatch.setenv("ATHENA_TABLE", "bar")
 
     import smart_budget.athena_loader as loader_mod
-    mock_conn = MagicMock()
-    raw_df = pd.DataFrame(columns=[
-        "idclient", "idcompany", "idmember", "idaccount",
-        "category_id", "category_name", "txn_month", "total_amount",
-    ])
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=raw_df) as mock_read_sql:
+    mock_conn = MagicMock()
+    raw_df = pd.DataFrame(
+        columns=[
+            "idclient",
+            "idcompany",
+            "idmember",
+            "idaccount",
+            "category_id",
+            "category_name",
+            "txn_month",
+            "total_amount",
+        ]
+    )
+
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=raw_df
+    ) as mock_read_sql:
         loader_mod.load_history_by_member_athena(idmember="42")
 
     sql_arg = mock_read_sql.call_args[0][0]
@@ -230,10 +289,12 @@ def test_load_history_wraps_exception(monkeypatch):
     Assert: AthenaQueryError raised with original exception chained.
     """
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", side_effect=RuntimeError("boom")):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", side_effect=RuntimeError("boom")
+    ):
         with pytest.raises(loader_mod.AthenaQueryError) as exc_info:
             loader_mod.load_history_by_member_athena(idmember="42")
 
@@ -252,11 +313,13 @@ def test_member_exists_true(monkeypatch):
     Assert: returns True.
     """
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
     one_row = pd.DataFrame({"1": [1]})
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=one_row):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=one_row
+    ):
         result = loader_mod.member_exists_athena(idmember="42")
 
     assert result is True
@@ -269,11 +332,13 @@ def test_member_exists_false(monkeypatch):
     Assert: returns False.
     """
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
     empty = pd.DataFrame()
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", return_value=empty):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", return_value=empty
+    ):
         result = loader_mod.member_exists_athena(idmember="42")
 
     assert result is False
@@ -286,9 +351,11 @@ def test_member_exists_wraps_exception(monkeypatch):
     Assert: AthenaQueryError raised.
     """
     import smart_budget.athena_loader as loader_mod
+
     mock_conn = MagicMock()
 
-    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), \
-         patch("smart_budget.athena_loader.pd.read_sql", side_effect=RuntimeError("timeout")):
+    with patch.object(loader_mod, "_get_connection", return_value=mock_conn), patch(
+        "smart_budget.athena_loader.pd.read_sql", side_effect=RuntimeError("timeout")
+    ):
         with pytest.raises(loader_mod.AthenaQueryError):
             loader_mod.member_exists_athena(idmember="42")
