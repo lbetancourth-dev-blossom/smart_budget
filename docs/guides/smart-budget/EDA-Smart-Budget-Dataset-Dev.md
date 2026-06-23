@@ -1,5 +1,9 @@
 # EDA — Smart Budget Dataset DEV (blossom-dough-consolidated-dev)
 
+> ⚠️ HISTÓRICO: Este EDA documenta el dataset extraído de PostgreSQL (blossom-dough-consolidated-dev).
+> Post-DATA-1275, los datos se consultan en tiempo real desde Athena (dlh_gold_dough_dev.smart_budget_transactions).
+> Este documento se conserva como referencia histórica y para entender la evolución del schema.
+
 > Exploración del dataset extraído directamente de la DB de desarrollo (dev).
 > Origen: `scripts/extract_smart_budget_monthly.py` + query `smart_budget_monthly_spend.sql`.
 > Archivo: `data/smart_budget_db_dev.csv`
