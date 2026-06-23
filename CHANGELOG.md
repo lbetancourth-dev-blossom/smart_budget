@@ -1,5 +1,36 @@
 # Changelog
 
+## [DATA-1275] — Migración fuente de datos a Athena (2026-06-23)
+
+Migración del endpoint Smart Budget (FastAPI + SageMaker) de CSV/PostgreSQL a consulta en tiempo real contra la tabla Glue `dlh_gold_dough_dev.smart_budget_transactions` vía pyathena. Los datos ya no se empaquetan en el modelo — se consultan en cada invocación.
+
+### Fuente de datos
+- Nuevo módulo `src/smart_budget/athena_loader.py`: `load_history_by_member_athena()`, `member_exists_athena()`, `AthenaQueryError`; conexión cacheada a nivel de módulo
+- Tabla fuente: `dlh_gold_dough_dev.smart_budget_transactions` (Athena/Glue, mantenida por DE en `homecu/dwh_dough`)
+- Query parametrizada por `idmember` + rango `txn_month` (formato `YYYY-MM`); tabla pre-filtrada (solo gastos, sin LOAN, sin PENDING)
+- Dependencia agregada: `pyathena>=3.0,<4` (en `requirements.txt` y `src/sagemaker/requirements.txt`)
+
+### Schema — breaking change (D4)
+- `SuggestionItem`: eliminado `defaultcategory`; agregados `category_id: str` y `category_name: str` (alineado al schema Glue)
+- `aggregator.py` y `model.py`: columnas `idcategory`/`defaultcategory` renombradas a `category_id`/`category_name` en todo el pipeline
+
+### SageMaker
+- `inference.py`: `predict_fn` llama `load_history_by_member_athena` en lugar del CSV loader
+- `notebooks/smart_budget_sagemaker_endpoint.ipynb`: CSV packaging eliminado de cell 6; env vars Athena (`ATHENA_S3_STAGING_DIR`, `ATHENA_REGION_NAME`, `ATHENA_DATABASE`, `ATHENA_TABLE`) agregadas al `SKLearnModel`
+- `model.tar.gz` ahora contiene solo código (sin `data/*.csv`)
+
+### Limpieza
+- Eliminado `src/smart_budget/loader.py` (CSV loader, reemplazado por `athena_loader.py`)
+- Eliminado `scripts/extract_smart_budget_monthly.py` (extracción PostgreSQL, reemplazada por Athena)
+- Eliminado `tests/unit/test_loader.py` (testeaba el loader eliminado)
+- `scripts/build_fact_transactions.py`: marcado LEGACY (modo `--source db` deprecado)
+
+### Docs
+- Nueva guía: `docs/guides/smart-budget/How-To-Query-Athena.md`
+- Actualizados: `README.md`, `How-To-Use-Endpoint.md`, `How-To-Extract-Data.md`, codemap completo
+
+---
+
 ## [DATA-1179] — Dataset real + grain idmember + entornos dev/alpha (2026-06, en progreso)
 
 Migración del pipeline de datos sintéticos a datos reales de la DB, cambio de grain de `idaccount` → `idmember`, y soporte de entornos dev/alpha en endpoint y SageMaker.
