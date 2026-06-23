@@ -29,7 +29,6 @@ Usage examples:
 
 import argparse
 import io
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -41,21 +40,26 @@ import pyarrow.parquet as pq
 # ── Config ────────────────────────────────────────────────────────────────────
 
 BUCKETS = {
-    "dev":   "blossom-analytics-datalake-dev",
+    "dev": "blossom-analytics-datalake-dev",
     "alpha": "blossom-analytics-datalake-alpha",
 }
 LAYERS = ["bronze", "silver", "gold"]
 PROFILE = "blossom-dev"
 
 SKIP_TABLES = {
-    "_bronze_watermark", "_silver_watermark", "_gold_watermark",
-    "logs", "migrations", "seeder_tracking",
+    "_bronze_watermark",
+    "_silver_watermark",
+    "_gold_watermark",
+    "logs",
+    "migrations",
+    "seeder_tracking",
 }
 
 ROOT = Path(__file__).parent.parent  # repo root
 
 
 # ── AWS ───────────────────────────────────────────────────────────────────────
+
 
 def get_s3_client():
     session = boto3.Session(profile_name=PROFILE)
@@ -64,14 +68,12 @@ def get_s3_client():
 
 # ── Discovery ─────────────────────────────────────────────────────────────────
 
+
 def list_sources(s3, bucket, layer):
     """Return list of source names (DOUGH, OLB, SAFE, ...) in a given layer."""
     prefix = f"datalake/{layer}/"
     resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter="/")
-    return [
-        cp["Prefix"].split("/")[-2]
-        for cp in resp.get("CommonPrefixes", [])
-    ]
+    return [cp["Prefix"].split("/")[-2] for cp in resp.get("CommonPrefixes", [])]
 
 
 def list_tables(s3, bucket, source_prefix):
@@ -96,6 +98,7 @@ def list_parquet_files(s3, bucket, prefix):
 
 
 # ── Reading ───────────────────────────────────────────────────────────────────
+
 
 def _read_one(s3, bucket, key):
     """Read a single parquet file from S3 → DataFrame."""
@@ -133,6 +136,7 @@ def read_parquet_files(s3, bucket, keys, workers=20):
 
 # ── Extraction ────────────────────────────────────────────────────────────────
 
+
 def extract_table(s3, bucket, layer, source, table, output_dir, workers):
     """Extract a single table → CSV. Returns row count or None."""
     table_prefix = f"datalake/{layer}/{source}/{table}/data/"
@@ -142,7 +146,8 @@ def extract_table(s3, bucket, layer, source, table, output_dir, workers):
         # Some tables store data directly (no /data/ sub-path)
         table_prefix_alt = f"datalake/{layer}/{source}/{table}/"
         parquet_files = [
-            k for k in list_parquet_files(s3, bucket, table_prefix_alt)
+            k
+            for k in list_parquet_files(s3, bucket, table_prefix_alt)
             if "/data/" not in k or True  # include all
         ]
 
@@ -169,7 +174,9 @@ def extract_source(s3, bucket, env, layer, source, tables_filter, workers):
         return
 
     if tables_filter:
-        tables = [t for t in all_tables if t.lower() in {t.lower() for t in tables_filter}]
+        tables = [
+            t for t in all_tables if t.lower() in {t.lower() for t in tables_filter}
+        ]
         missing = set(tables_filter) - {t.lower() for t in all_tables}
         if missing:
             print(f"  ⚠️  Tables not found: {missing}")
@@ -186,7 +193,9 @@ def extract_source(s3, bucket, env, layer, source, tables_filter, workers):
     total_rows = 0
     for table in sorted(tables):
         print(f"  → {table}", end="", flush=True)
-        out_path, rows = extract_table(s3, bucket, layer, source, table, output_dir, workers)
+        out_path, rows = extract_table(
+            s3, bucket, layer, source, table, output_dir, workers
+        )
         if out_path is None:
             print("  [NO DATA]")
         else:
@@ -197,6 +206,7 @@ def extract_source(s3, bucket, env, layer, source, tables_filter, workers):
 
 
 # ── List mode ─────────────────────────────────────────────────────────────────
+
 
 def cmd_list(s3, bucket, layers):
     """Print all available sources and their tables."""
@@ -217,24 +227,46 @@ def cmd_list(s3, bucket, layers):
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Extract tables from S3 datalake to CSV.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--env", choices=["dev", "alpha"], default="dev",
-                        help="Datalake environment (default: dev)")
-    parser.add_argument("--source", default=None,
-                        help="Source to extract: DOUGH, OLB, SAFE, ... (default: all)")
-    parser.add_argument("--layer", default="silver",
-                        help="Layer to extract: bronze, silver, gold, all (default: silver)")
-    parser.add_argument("--table", nargs="+", default=None,
-                        help="Specific table(s) to extract (default: all tables)")
-    parser.add_argument("--workers", type=int, default=20,
-                        help="Parallel download workers (default: 20, use 40 for OLB)")
-    parser.add_argument("--list", action="store_true",
-                        help="List available sources and tables without downloading")
+    parser.add_argument(
+        "--env",
+        choices=["dev", "alpha"],
+        default="dev",
+        help="Datalake environment (default: dev)",
+    )
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="Source to extract: DOUGH, OLB, SAFE, ... (default: all)",
+    )
+    parser.add_argument(
+        "--layer",
+        default="silver",
+        help="Layer to extract: bronze, silver, gold, all (default: silver)",
+    )
+    parser.add_argument(
+        "--table",
+        nargs="+",
+        default=None,
+        help="Specific table(s) to extract (default: all tables)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=20,
+        help="Parallel download workers (default: 20, use 40 for OLB)",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List available sources and tables without downloading",
+    )
     args = parser.parse_args()
 
     bucket = BUCKETS[args.env]
@@ -269,7 +301,11 @@ def main():
 
         for source in sources:
             extract_source(
-                s3, bucket, args.env, layer, source,
+                s3,
+                bucket,
+                args.env,
+                layer,
+                source,
                 tables_filter=args.table,
                 workers=args.workers,
             )

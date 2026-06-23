@@ -1,4 +1,4 @@
-idmember,idclient,idcompany,category_id,defaultcategory,period_yyyymm,monthly_total,suggested_amount,total_suggested,confidence,months_analyzed,months_with_zero,months_with_positive_spend
+idmember,idclient,idcompany,category_id,category_name,period_yyyymm,monthly_total,suggested_amount,total_suggested,confidence,months_analyzed,months_with_zero,months_with_positive_spend
 10,1,1,1,Auto & Transport,2025-10,120.0,126.9,413.19,high,6,0,6
 10,1,1,1,Auto & Transport,2025-11,130.0,126.9,413.19,high,6,0,6
 10,1,1,1,Auto & Transport,2025-12,140.0,126.9,413.19,high,6,0,6

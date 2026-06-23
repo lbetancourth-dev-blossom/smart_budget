@@ -2,6 +2,7 @@
 
 Pipeline: apply_treatment → compute method → confidence → explanation → JSON dict.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -152,9 +153,7 @@ def build_explanation(
     UDAAP/CFPB compliant — nunca prescriptiva ni comparativa.
     """
     if confidence is None:
-        return (
-            "Not enough historical data to calculate a suggestion for this category."
-        )
+        return "Not enough historical data to calculate a suggestion for this category."
     elif confidence == "high":
         return (
             f"In {months_with_positive_spend} of your last {months_analyzed} months "
@@ -188,8 +187,8 @@ _MODEL_VERSION = "fase0-v1"
 def _null_suggestion(bucket_meta: dict) -> dict:
     """Build a null-suggestion dict for the given bucket metadata."""
     return {
-        "category_id": bucket_meta["idcategory"],
-        "defaultcategory": bucket_meta["defaultcategory"],
+        "category_id": bucket_meta["category_id"],
+        "category_name": bucket_meta["category_name"],
         "idmember": bucket_meta["idmember"],
         "idclient": bucket_meta["idclient"],
         "idcompany": bucket_meta["idcompany"],
@@ -214,7 +213,7 @@ def compute_budget_suggestions(
     epsilon: float = EPSILON_DEFAULT,
 ) -> list[dict]:
     """
-    Función principal. Pipeline por bucket (idmember × idcategory × defaultcategory):
+    Función principal. Pipeline por bucket (idmember × category_id × category_name):
 
     0. Collapse monthly_total to idmember grain (sum across accounts per member/period)
     1. Filtrar df a los N meses anteriores a reference_date (inclusive)
@@ -237,7 +236,9 @@ def compute_budget_suggestions(
         ValueError: si method no está en {"wma", "ewma", "holt_winters", "median"}.
     """
     if method not in {"wma", "ewma", "holt_winters", "median"}:
-        raise ValueError(f"method must be one of 'wma', 'ewma', 'holt_winters', 'median' — got {method!r}")
+        raise ValueError(
+            f"method must be one of 'wma', 'ewma', 'holt_winters', 'median' — got {method!r}"
+        )
 
     if df.empty:
         return []
@@ -258,7 +259,14 @@ def compute_budget_suggestions(
                 "This is a security violation (AUTH-2). Ensure input data is scoped to a single company."
             )
 
-        collapse_keys = ["idclient", "idcompany", "idmember", "idcategory", "defaultcategory", "period_yyyymm"]
+        collapse_keys = [
+            "idclient",
+            "idcompany",
+            "idmember",
+            "category_id",
+            "category_name",
+            "period_yyyymm",
+        ]
         df = df.groupby(collapse_keys, as_index=False)["monthly_total"].sum()
     # Legacy path: idmember not in df — keep idaccount-based grouping
     # (bucket_keys will use idaccount below)
@@ -279,15 +287,15 @@ def compute_budget_suggestions(
 
     results = []
     if has_idmember:
-        bucket_keys = ["idmember", "idcategory", "defaultcategory"]
+        bucket_keys = ["idmember", "category_id", "category_name"]
     else:
-        bucket_keys = ["idaccount", "idcategory", "defaultcategory"]
+        bucket_keys = ["idaccount", "category_id", "category_name"]
 
     for bucket, df_bucket in df.groupby(bucket_keys, sort=True):
         if has_idmember:
-            idmember, idcategory, defaultcategory = bucket
+            idmember, category_id, category_name = bucket
         else:
-            idaccount, idcategory, defaultcategory = bucket
+            idaccount, category_id, category_name = bucket
             idmember = idaccount  # legacy
 
         # Pull consistent metadata from the bucket
@@ -295,8 +303,8 @@ def compute_budget_suggestions(
         idcompany = str(df_bucket["idcompany"].iloc[0])
         bucket_meta = {
             "idmember": str(idmember),
-            "idcategory": str(idcategory),
-            "defaultcategory": str(defaultcategory),
+            "category_id": str(category_id),
+            "category_name": str(category_name),
             "idclient": idclient,
             "idcompany": idcompany,
         }
@@ -344,12 +352,14 @@ def compute_budget_suggestions(
         suggested_amount = value
 
         # Step 8: build explanation
-        explanation = build_explanation(months_analyzed, months_with_positive_spend, confidence)
+        explanation = build_explanation(
+            months_analyzed, months_with_positive_spend, confidence
+        )
 
         # Step 9: build JSON dict
         result = {
-            "category_id": str(idcategory),
-            "defaultcategory": str(defaultcategory),
+            "category_id": str(category_id),
+            "category_name": str(category_name),
             "idmember": str(idmember),
             "idclient": idclient,
             "idcompany": idcompany,
@@ -374,6 +384,7 @@ def compute_budget_suggestions(
     # Security [AUTH-2]: idclient + idcompany included to prevent cross-tenant mixing.
     # Business rule: total_suggested = sum of non-null suggested_amounts; if all null → 0.0.
     from collections import defaultdict
+
     member_totals: dict = defaultdict(float)
     member_has_suggestion: dict = defaultdict(bool)
 

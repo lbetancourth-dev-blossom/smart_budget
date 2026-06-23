@@ -17,7 +17,7 @@ Definiciones de todos los términos de dominio usados en el código y la documen
 |---|---|
 | **fact_transactions** | Tabla central de transacciones. Unifica `OLBSubAccountTransaction` + `OLBLoanTransaction` + `externaltransaction` en un esquema canónico de 32 columnas. |
 | **smart_budget_prep** | Output del pipeline de preparación: datos filtrados, agregados mensualmente y con gating aplicado. Input del modelo de sugerencias. |
-| **bucket** | Una combinación única `(idaccount × idcategory × defaultcategory)`. La unidad de cálculo del modelo. |
+| **bucket** | Una combinación única `(idaccount × category_id × category_name)`. La unidad de cálculo del modelo. |
 | **gating** | Regla que descarta buckets con menos de N meses de datos positivos (default: 3). Un bucket sin suficiente historial no recibe sugerencia. |
 | **treatment** | Estrategia para manejar meses con gasto cero: A (incluir ceros), B (excluir ceros), C (reemplazar ceros por epsilon=0.01). |
 | **lookback_months** | Ventana de meses hacia atrás desde `reference_date` usada para calcular la sugerencia. Configurable por CU (default: 6, rango: 3–24). |
@@ -50,7 +50,8 @@ Definiciones de todos los términos de dominio usados en el código y la documen
 | **OLB** | Online Banking (sistema interno Blossom). Transacciones con prefijo `SUB`. Las transacciones `LOAN` se construyen en `fact_transactions` pero se excluyen del modelo presupuestal (Rule 4). |
 | **EXT** | Transacciones externas via Plaid o Finicity (agregador Dough). Prefijo `EXT`. |
 | **idtransaction** | ID único de transacción. Prefijo determina origen: `SUB` (OLB SubAccount, incluido en modelo), `LOAN` (OLB Loan, **excluido por Rule 4**), `EXT` (Dough externo). |
-| **defaultcategory** | Categoría estándar de Blossom (string, ej: `"GROCERIES"`). Viene del catálogo `defaultcategory` o de Ntropy (RICH). |
+| **category_id** | ID numérico de la categoría de gasto (ej: `42`). Columna en `smart_budget_transactions` (reemplaza `idcategory`). |
+| **category_name** | Nombre legible de la categoría (ej: `"GROCERIES"`). Columna en `smart_budget_transactions` (reemplaza `defaultcategory`). |
 | **RICH** | Enriquecimiento de Ntropy. Asigna `defaultcategory` a transacciones externas. No todas las CUs tienen RICH activo. |
 | **MONEY_SENT** | Categoría legacy OLB equivalente a Internal Transfers. Excluida del modelo. |
 | **incomeexpenditure** | Campo que indica si la transacción es `"expenditure"` (gasto) o `"income"` (ingreso). Smart Budget filtra solo `expenditure`. |

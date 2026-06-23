@@ -9,7 +9,7 @@ last_commit: 9c0a1dc
 
 # SageMaker — Public API
 
-Las cuatro funciones del contrato `SKLearnModel` en `src/sagemaker/inference.py`.
+Las cuatro funciones del contrato `SKLearnModel` en `src/sagemaker/inference.py`. La inferencia consulta datos desde Athena (`dlh_gold_dough_dev.smart_budget_transactions`) via `smart_budget.athena_loader`.
 
 ## `model_fn(model_dir: str) -> str`
 
@@ -17,31 +17,31 @@ Carga el artifact y parchea `sys.path` para que el paquete `smart_budget` sea im
 
 ```python
 def model_fn(model_dir: str) -> str:
-    """Retorna model_dir como handle (los CSVs se cargan en predict_fn)."""
+    """Retorna model_dir como handle (los datos se consultan desde Athena en predict_fn)."""
 ```
 
 ## `input_fn(input_data: str, content_type: str) -> dict`
 
-Deserializa el payload JSON y valida `defaultcategory`.
+Deserializa el payload JSON y valida `category_id`.
 
 **Input (JSON string):**
 ```json
 {
   "idaccount": "EXT2",
-  "defaultcategory": "Food",
+  "category_id": 42,
   "period_id": "2026-05"
 }
 ```
 
-**Raises:** `ValueError` si `defaultcategory` no está en el catálogo de 15 categorías válidas.
+**Raises:** `ValueError` si `category_id` no es un entero válido.
 
 ## `predict_fn(data: dict, model: str) -> dict`
 
 Corre el pipeline completo y retorna la sugerencia.
 
 **Flujo:**
-1. Verifica que `idaccount` existe (`account_exists`) — raise `ValueError` si no
-2. Carga historia (`load_history`)
+1. Verifica que `idaccount` existe (`member_exists_athena`) — raise `ValueError` si no
+2. Carga historia desde Athena (`load_history_by_member_athena`)
 3. Calcula `reference_date = period_id − 1 mes`
 4. Aplica gating (`apply_gating`)
 5. Calcula sugerencia (`compute_budget_suggestions`)
@@ -50,7 +50,8 @@ Corre el pipeline completo y retorna la sugerencia.
 **Output dict:**
 ```python
 {
-    "category_id": "Food",
+    "category_id": 42,
+    "category_name": "GROCERIES",
     "suggested_amount": 420.00,        # None si gating falla
     "basis": {
         "months_analyzed": 3,
@@ -81,7 +82,7 @@ import json
 
 payload = json.dumps({
     "idaccount": "EXT2",
-    "defaultcategory": "Food",
+    "category_id": 42,
     "period_id": "2026-05"
 })
 
@@ -93,8 +94,8 @@ result = json.loads(response)
 
 | Error | Causa | Solución |
 |---|---|---|
-| `ValueError: idaccount not found` | `idaccount` no existe en los CSVs cargados | Verificar que el tarball incluye el account en `data/` |
-| `ValueError: invalid category` | `defaultcategory` fuera del catálogo | Usar una de las 15 categorías válidas |
+| `ValueError: idaccount not found` | `idaccount` no existe en Athena | Verificar que el miembro tiene transacciones en `smart_budget_transactions` |
+| `ValueError: invalid category` | `category_id` inválido | Usar un ID de categoría presente en la tabla Athena |
 | `ImportError: numpy.core.multiarray` | `statsmodels` instalado con numpy incorrecto | Nunca instalar statsmodels en `sklearn:1.2-1` |
 | `NameError: reference_date` | Bug en inference.py (líneas fusionadas) | Verificar líneas 133-134 son statements separados |
 

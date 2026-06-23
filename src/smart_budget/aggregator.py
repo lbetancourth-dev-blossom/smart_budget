@@ -1,4 +1,5 @@
 """src/smart_budget/aggregator.py — Aggregation pipeline for Smart Budget."""
+
 import pandas as pd
 import structlog
 
@@ -13,7 +14,7 @@ _logger = structlog.get_logger()
 
 def aggregate_monthly(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Agrupa por (idclient, idcompany, idmember, idaccount, idcategory, defaultcategory, period_yyyymm)
+    Agrupa por (idclient, idcompany, idmember, idaccount, category_id, category_name, period_yyyymm)
     y suma amount. Clampea negativos a 0. Retorna columna monthly_total.
 
     Crea period_yyyymm desde la columna `date` como "YYYY-MM".
@@ -23,7 +24,15 @@ def aggregate_monthly(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["period_yyyymm"] = pd.to_datetime(df["date"]).dt.to_period("M").astype(str)
 
-    group_keys = ["idclient", "idcompany", "idmember", "idaccount", "idcategory", "defaultcategory", "period_yyyymm"]
+    group_keys = [
+        "idclient",
+        "idcompany",
+        "idmember",
+        "idaccount",
+        "category_id",
+        "category_name",
+        "period_yyyymm",
+    ]
     # Only include keys present in the df
     group_keys = [k for k in group_keys if k in df.columns]
     agg = df.groupby(group_keys, as_index=False)["amount"].sum()
@@ -83,9 +92,16 @@ def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
     all_months_str = [str(p) for p in all_months]
 
     # Get unique member×category pairs (include idmember if present)
-    member_cols = ["idclient", "idcompany", "idaccount", "idcategory", "defaultcategory"]
+    member_cols = ["idclient", "idcompany", "idaccount", "category_id", "category_name"]
     if has_idmember:
-        member_cols = ["idclient", "idcompany", "idmember", "idaccount", "idcategory", "defaultcategory"]
+        member_cols = [
+            "idclient",
+            "idcompany",
+            "idmember",
+            "idaccount",
+            "category_id",
+            "category_name",
+        ]
     member_cat = df[member_cols].drop_duplicates()
 
     # Build full grid: cross join member_cat × all_months
@@ -96,9 +112,15 @@ def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
     full_grid = pd.merge(member_cat, months_df, on="_key").drop(columns=["_key"])
 
     # Left join grid ← actual data
-    join_keys = ["idaccount", "idcategory", "defaultcategory", "period_yyyymm"]
+    join_keys = ["idaccount", "category_id", "category_name", "period_yyyymm"]
     if has_idmember:
-        join_keys = ["idmember", "idaccount", "idcategory", "defaultcategory", "period_yyyymm"]
+        join_keys = [
+            "idmember",
+            "idaccount",
+            "category_id",
+            "category_name",
+            "period_yyyymm",
+        ]
     agg_cols = join_keys + ["monthly_total"]
     result = pd.merge(
         full_grid,
@@ -113,7 +135,7 @@ def zero_fill(df: pd.DataFrame) -> pd.DataFrame:
 
 def apply_gating(df: pd.DataFrame, min_months: int = 3) -> pd.DataFrame:
     """
-    Cuenta meses únicos con monthly_total > 0 por (idclient, idcompany, idmember, idcategory, defaultcategory).
+    Cuenta meses únicos con monthly_total > 0 por (idclient, idcompany, idmember, category_id, category_name).
     Excluye pares con count < min_months.
     Zero-filled months (monthly_total == 0) do NOT count toward the gating threshold.
 
@@ -125,13 +147,24 @@ def apply_gating(df: pd.DataFrame, min_months: int = 3) -> pd.DataFrame:
     nonzero = df[df["monthly_total"] > 0]
 
     if has_idmember:
-        gating_keys = ["idclient", "idcompany", "idmember", "idcategory", "defaultcategory"]
+        gating_keys = [
+            "idclient",
+            "idcompany",
+            "idmember",
+            "category_id",
+            "category_name",
+        ]
     else:
-        gating_keys = ["idclient", "idcompany", "idaccount", "idcategory", "defaultcategory"]
+        gating_keys = [
+            "idclient",
+            "idcompany",
+            "idaccount",
+            "category_id",
+            "category_name",
+        ]
 
     month_counts = (
-        nonzero
-        .groupby(gating_keys)["period_yyyymm"]
+        nonzero.groupby(gating_keys)["period_yyyymm"]
         .nunique()
         .reset_index(name="month_count")
     )
@@ -149,7 +182,7 @@ def prepare_smart_budget_data(
     aggregate_monthly → zero_fill → apply_gating.
 
     Returns DataFrame with columns:
-        idclient, idcompany, idmember, idcategory, defaultcategory, period_yyyymm,
+        idclient, idcompany, idmember, category_id, category_name, period_yyyymm,
         monthly_total (float, >= 0).
 
     Note: idaccount is removed from output — the model grain is idmember.
@@ -174,17 +207,25 @@ def prepare_smart_budget_data(
             gated = gated[~null_mask]
 
         output_cols = [
-            "idclient", "idcompany", "idmember", "idcategory", "defaultcategory",
-            "period_yyyymm", "monthly_total",
+            "idclient",
+            "idcompany",
+            "idmember",
+            "category_id",
+            "category_name",
+            "period_yyyymm",
+            "monthly_total",
         ]
     else:
         # Legacy path: idmember not available
         output_cols = [
-            "idclient", "idcompany", "idcategory", "defaultcategory",
-            "period_yyyymm", "monthly_total",
+            "idclient",
+            "idcompany",
+            "category_id",
+            "category_name",
+            "period_yyyymm",
+            "monthly_total",
         ]
 
     # Only include columns that exist
     output_cols = [c for c in output_cols if c in gated.columns]
     return gated[output_cols].reset_index(drop=True)
-

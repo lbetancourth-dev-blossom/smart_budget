@@ -1,20 +1,19 @@
-"""src/api/router.py — FastAPI router para Smart Budget (DATA-1179).
+"""src/api/router.py — FastAPI router para Smart Budget.
 
-Contrato de endpoint (DATA-1179):
+Contrato de endpoint:
   GET /smart-budget/suggestion?idmember=15632&period_id=2026-02
     → 200: MemberSuggestionResponse con array de todas las categorías + total_suggested
-    → 404: si idmember no existe
+    → 404: si idmember no existe en Athena
     → nunca 500 por falta de data — devolver suggestions vacío y log
 
+Fuente de datos: Athena (dlh_gold_dough_dev.smart_budget_transactions).
 Entorno activo: variable de entorno SB_ENV=dev|alpha (default: dev).
-El idmember en Swagger muestra la lista completa de miembros del entorno activo.
 """
 
 from __future__ import annotations
 
 import os
 from enum import Enum
-from pathlib import Path
 from typing import List, Optional, Type
 
 import pandas as pd
@@ -23,7 +22,11 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from smart_budget.aggregator import apply_gating
-from smart_budget.loader import member_exists, load_history_by_member
+from smart_budget.athena_loader import (
+    AthenaQueryError,
+    load_history_by_member_athena,
+    member_exists_athena,
+)
 from smart_budget.model import compute_budget_suggestions
 
 logger = structlog.get_logger()
@@ -32,26 +35,32 @@ logger = structlog.get_logger()
 # Enums para Swagger UI — dropdowns en "Try it out"
 # ---------------------------------------------------------------------------
 
-_ENV_CSV: dict[str, str] = {
-    "dev":   "smart_budget_db_dev.csv",
-    "alpha": "smart_budget_db_alpha.csv",
-}
-
 _ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
-_DATA_PATH: Path = (
-    Path(os.getenv("SMART_BUDGET_DATA_DIR", "data"))
-    / _ENV_CSV.get(_ACTIVE_ENV, _ENV_CSV["dev"])
-)
-
 
 # Top-10 miembros con sugerencias en >1 categoría (pre-calculado por entorno, lb=3)
 _IDMEMBERS_DEV = [
-    "11393", "9646", "10859", "11001", "11066",
-    "12274", "12277", "12284", "12288", "12290",
+    "11393",
+    "9646",
+    "10859",
+    "11001",
+    "11066",
+    "12274",
+    "12277",
+    "12284",
+    "12288",
+    "12290",
 ]
 _IDMEMBERS_ALPHA = [
-    "385462", "593079", "385543", "385664", "586384",
-    "388104", "388305", "385952", "538781", "385640",
+    "385462",
+    "593079",
+    "385543",
+    "385664",
+    "586384",
+    "388104",
+    "388305",
+    "385952",
+    "538781",
+    "385640",
 ]
 
 _members = _IDMEMBERS_ALPHA if _ACTIVE_ENV == "alpha" else _IDMEMBERS_DEV
@@ -85,7 +94,8 @@ class BasisDetail(BaseModel):
 class SuggestionItem(BaseModel):
     """Sugerencia de presupuesto para una categoría individual."""
 
-    defaultcategory: str
+    category_id: str
+    category_name: str
     suggested_amount: Optional[float]
     confidence: Optional[str]
     basis: Optional[BasisDetail]
@@ -144,19 +154,31 @@ def get_suggestion(
     # reference_date = period_id − 1 mes (meses ANTERIORES al período a presupuestar)
     reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
-    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=_ACTIVE_ENV)
+    log = logger.bind(
+        idmember=idmember_val,
+        period_id=period_id_val,
+        reference_date=reference_date,
+        env=_ACTIVE_ENV,
+    )
     log.info("smart_budget.suggestion.start")
 
-    # Cargar historial de todas las categorías del miembro desde el CSV del entorno
+    # Cargar historial de todas las categorías del miembro desde Athena
     try:
-        history = load_history_by_member(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name)
-    except FileNotFoundError:
-        log.error("smart_budget.suggestion.base_dir_not_found", data_path=str(_DATA_PATH))
-        raise HTTPException(status_code=500, detail=f"data file not found: {_DATA_PATH.name}")
+        history = load_history_by_member_athena(idmember=idmember_val)
+    except AthenaQueryError as e:
+        log.error("smart_budget.suggestion.athena_error", error=str(e))
+        raise HTTPException(status_code=503, detail="datalake temporarily unavailable")
 
     # Miembro no existe → 404
     if history.empty:
-        if not member_exists(idmember_val, _DATA_PATH.parent, csv_name=_DATA_PATH.name):
+        try:
+            exists = member_exists_athena(idmember=idmember_val)
+        except AthenaQueryError as e:
+            log.error("smart_budget.suggestion.athena_error", error=str(e))
+            raise HTTPException(
+                status_code=503, detail="datalake temporarily unavailable"
+            )
+        if not exists:
             log.info("smart_budget.suggestion.not_found")
             raise HTTPException(status_code=404, detail="idmember not found")
         # Miembro existe pero no tiene datos → 200 con null + mensaje
@@ -182,7 +204,9 @@ def get_suggestion(
     gated = apply_gating(history, min_months=_MIN_MONTHS_GATING)
 
     if gated.empty:
-        log.info("smart_budget.suggestion.empty", reason="gating_min_months_all_categories")
+        log.info(
+            "smart_budget.suggestion.empty", reason="gating_min_months_all_categories"
+        )
         return MemberSuggestionResponse(
             idmember=str(idmember_val),
             idclient=idclient,
@@ -224,28 +248,40 @@ def get_suggestion(
     suggestions: list[SuggestionItem] = []
     for r in results:
         basis_data = r.get("basis") or {}
-        cat = r.get("defaultcategory", "")
+        cat_id = r.get("category_id", "")
+        cat_name = r.get("category_name", "")
 
         # amount_by_month: filtrar historial de esta categoría para la ventana
-        cat_history = gated[gated["defaultcategory"] == cat] if cat else pd.DataFrame()
+        cat_history = (
+            gated[gated["category_name"] == cat_name] if cat_name else pd.DataFrame()
+        )
         amount_by_month = _build_amount_by_month(cat_history, reference_date, _LOOKBACK)
 
         amount = r.get("suggested_amount")
         suggestions.append(
             SuggestionItem(
-                defaultcategory=cat,
+                category_id=cat_id,
+                category_name=cat_name,
                 suggested_amount=round(amount, 2) if amount is not None else None,
                 confidence=r.get("confidence"),
-                basis=BasisDetail(
-                    months_analyzed=basis_data.get("months_analyzed", 0),
-                    months_with_spend=basis_data.get("months_with_positive_spend", 0),
-                    period_range=basis_data.get("period_range", ""),
-                ) if basis_data else None,
+                basis=(
+                    BasisDetail(
+                        months_analyzed=basis_data.get("months_analyzed", 0),
+                        months_with_spend=basis_data.get(
+                            "months_with_positive_spend", 0
+                        ),
+                        period_range=basis_data.get("period_range", ""),
+                    )
+                    if basis_data
+                    else None
+                ),
                 amount_by_month=amount_by_month,
             )
         )
 
-    model_version = results[0].get("model_version", "fase0-v1") if results else "fase0-v1"
+    model_version = (
+        results[0].get("model_version", "fase0-v1") if results else "fase0-v1"
+    )
     total_suggested = float(results[0].get("total_suggested") or 0.0)
 
     log.info(

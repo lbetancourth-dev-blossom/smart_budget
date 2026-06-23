@@ -8,23 +8,28 @@ Módulo **Smart Budget** del producto **Dough** (PFM de Blossom para Credit Unio
 
 ## Dataset
 
-Data is extracted directly from the DB via SQL query (no S3).
+Data is queried live from AWS Athena at request time — no local CSV files required.
 
-| Environment | File | Members | Periods |
-|-------------|------|---------|---------|
-| `dev` | `data/smart_budget_db_dev.csv` | 421 | 2022-09 → 2026-05 |
-| `alpha` | `data/smart_budget_db_alpha.csv` | 2,929 | 2019-06 → 2026-06 |
+| Environment | Athena Table | Members | Periods |
+|-------------|-------------|---------|---------|
+| `dev` | `dlh_gold_dough_dev.smart_budget_transactions` | 421+ | 2022-09 → present |
+| `alpha` | `dlh_gold_dough_dev.smart_budget_transactions` | 2,929+ | 2019-06 → present |
 
-### Schema
+### Schema (Athena table)
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `idmember` | string | Member identifier (primary grain) |
 | `idclient` | string | Client identifier (multi-tenancy) |
 | `idcompany` | string | Credit Union identifier |
-| `defaultcategory` | string | Blossom default spending category |
-| `year_month` | string (YYYY-MM) | Calendar month of the spend |
+| `idaccount` | string | Account identifier |
+| `category_id` | string | Blossom category ID |
+| `category_name` | string | Blossom category name (e.g. `"Groceries"`) |
+| `type_category` | string | Category type (pre-filtered to expenditure) |
+| `txn_month` | string (YYYY-MM) | Calendar month of the spend |
 | `total_amount` | float | Net spend for that month and category (USD) |
+| `year` | int | Year extracted from `txn_month` |
+| `month` | int | Month extracted from `txn_month` |
 
 ### Filtering rules applied at extraction (never bypass)
 
@@ -63,7 +68,8 @@ Active environment is controlled by `SB_ENV=dev|alpha` (default: `dev`).
   "total_suggested": 72.33,
   "suggestions": [
     {
-      "defaultcategory": "Gas",
+      "category_id": "GAS",
+      "category_name": "Gas",
       "suggested_amount": 15.00,
       "confidence": "low",
       "basis": {
@@ -78,7 +84,8 @@ Active environment is controlled by `SB_ENV=dev|alpha` (default: `dev`).
       }
     },
     {
-      "defaultcategory": "Other",
+      "category_id": "OTHER",
+      "category_name": "Other",
       "suggested_amount": 37.33,
       "confidence": "low",
       "basis": {
@@ -183,9 +190,9 @@ ENV = "dev"   # "dev" | "alpha"
 |--|-----|-------|
 | **S3 model path** | `smart_budget/endpoint/v1/dev/model.tar.gz` | `smart_budget/endpoint/v1/alpha/model.tar.gz` |
 | **Endpoint name** | `smart-budget-suggestion-endpoint-dev` | `smart-budget-suggestion-endpoint-alpha` |
-| **Data bundled** | `smart_budget_db_dev.csv` | `smart_budget_db_alpha.csv` |
+| **Data source** | Athena live query at inference time | Athena live query at inference time |
 
-The SageMaker endpoint accepts the same request contract and returns the same response schema as the local endpoint.
+The SageMaker endpoint accepts the same request contract and returns the same response schema as the local endpoint. Data is **not bundled** in the model artifact — it is queried from Athena on every invocation.
 
 ---
 

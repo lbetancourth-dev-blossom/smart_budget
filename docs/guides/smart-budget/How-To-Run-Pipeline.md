@@ -9,14 +9,18 @@ last_mapped_at: 2026-05-13T10:20:00Z
 
 # How to Run the Smart Budget Pipeline
 
+> ⚠️ **LEGACY / Batch pipeline:** Este pipeline opera sobre CSVs locales extraídos de S3/PostgreSQL.
+> Post-DATA-1275, la fuente de datos del endpoint es Athena directamente — no requiere CSVs ni este pipeline.
+> Ver [[How-To-Query-Athena]] para el flujo recomendado.
+
 ## What this does
 
-Ejecuta el pipeline completo de Smart Budget Fase 0: desde el CSV de `fact_transactions` hasta el JSON de sugerencias de presupuesto por categoría.
+Ejecuta el pipeline batch de Smart Budget Fase 0: desde el CSV de `fact_transactions` (legacy) hasta el JSON de sugerencias de presupuesto por categoría. Útil para experimentos offline y validación de métodos.
 
 ## Before you start
 
 - AWS SSO activo: `aws sso login --profile blossom-dev`
-- CSV de `fact_transactions` disponible en `data/dough/fact_transactions.csv` (o correr el paso de extracción primero — ver [[How-To-Extract-From-S3]])
+- CSV de `fact_transactions` disponible en `data/dough/fact_transactions.csv` (o correr el paso de extracción primero — ver [[How-To-Extract-Data]])
 - Python env activo con dependencias instaladas: `pip install -r requirements.txt`
 
 ## Steps

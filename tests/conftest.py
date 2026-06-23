@@ -1,4 +1,5 @@
 """tests/conftest.py — shared helpers for test suite."""
+
 import pathlib
 import pandas as pd
 
