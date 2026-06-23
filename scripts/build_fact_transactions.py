@@ -1,9 +1,15 @@
 """
 build_fact_transactions.py
 ==========================
-Construye la tabla fact_transactions. Soporta dos modos:
+LEGACY: construye fact_transactions desde S3 silver o PostgreSQL.
 
-  --source db   (recomendado) Lee directo de blossom-dough-consolidated-dev.
+⚠️  DEPRECADO (DATA-1275): el endpoint Smart Budget ahora consulta datos en tiempo real
+    desde Athena (dlh_gold_dough_dev.smart_budget_transactions). Este script es para
+    pipelines batch históricos o entornos sin acceso a Athena.
+
+Soporta dos modos:
+
+  --source db   Lee directo de blossom-dough-consolidated-dev (PostgreSQL). LEGACY.
                 Garantiza datos idénticos a los del equipo de DE.
                 Requiere variables de entorno o argumentos de conexión.
 

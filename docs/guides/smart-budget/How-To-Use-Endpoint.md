@@ -4,15 +4,16 @@ aliases: [Endpoint Smart Budget, API Local, SageMaker Endpoint]
 tags: [guide, endpoint, api, sagemaker, inference]
 type: guide
 audience: ds-ml
-ticket: DATA-1140
-last_updated: 2026-05-15
+ticket: DATA-1275
+last_updated: 2026-06-22
 ---
 
 # Cómo usar el endpoint Smart Budget
 
 Guía para levantar el endpoint local (FastAPI) y opcionalmente desplegarlo en SageMaker.
 
-> **Fase 0 — dev/test only.** El endpoint usa datos sintéticos y de prueba.
+> **Fuente de datos:** Athena (`dlh_gold_dough_dev.smart_budget_transactions`).
+> Los datos se consultan en tiempo real — no se empaquetan en el modelo.
 > No tiene autenticación. No apuntar a datos de producción sin revisión de PII.
 
 ---
@@ -40,18 +41,20 @@ aws sso login --profile blossom-dev
 ### Levantar el servidor
 
 ```bash
-# Desde la raíz del repo — dos variables obligatorias:
-#   PYTHONPATH=src       → expone smart_budget al import
-#   SMART_BUDGET_DATA_DIR → path absoluto a los CSVs (evita "data directory not configured")
+# Desde la raíz del repo — variables requeridas:
+#   PYTHONPATH=src             → expone smart_budget al import
+#   ATHENA_S3_STAGING_DIR      → bucket S3 para resultados temporales de Athena
+#   ATHENA_REGION_NAME         → región AWS (default: us-east-2)
 
 PYTHONPATH=src \
-SMART_BUDGET_DATA_DIR=$(pwd)/data/dough \
+ATHENA_S3_STAGING_DIR=s3://blossom-analytics-datalake-alpha/datalake/gold/athena-metadata/ \
+ATHENA_REGION_NAME=us-east-2 \
 .venv/bin/uvicorn src.main:app --reload --port 8000
 ```
 
 > **Nota:** `smart_budget` vive en `src/smart_budget/`. Sin `PYTHONPATH=src` se lanza
 > `ModuleNotFoundError: No module named 'smart_budget'`.
-> Sin `SMART_BUDGET_DATA_DIR` se lanza `Internal Server Error: data directory not configured`.
+> Sin `ATHENA_S3_STAGING_DIR` la conexión a Athena fallará con `AthenaQueryError`.
 
 El servidor queda disponible en `http://localhost:8000`.
 
@@ -74,57 +77,65 @@ http://localhost:8000/redoc     ← ReDoc
 ```
 GET /smart-budget/suggestion
 
-Query params (todos requeridos, validados por enum):
-  idaccount        string   ID de la cuenta del miembro
-  defaultcategory  string   Categoría a presupuestar
-  period_id        string   Mes a presupuestar (formato YYYY-MM)
+Query params (todos requeridos):
+  idmember   string   ID del miembro (consultado contra Athena)
+  period_id  string   Mes a presupuestar (formato YYYY-MM)
 ```
 
 **Respuesta con sugerencia** (≥ 2 meses de historial):
 
 ```json
 {
-  "idaccount": "EXT2",
+  "idmember": "18973",
   "idclient": "1",
-  "idcompany": "1",
-  "defaultcategory": "Food & Dining",
+  "idcompany": "2050",
   "period_id": "2026-05",
-  "suggested_amount": 312.50,
-  "confidence": "high",
-  "basis": {
-    "months_analyzed": 6,
-    "months_with_positive_spend": 6,
-    "method": "wma",
-    "treatment": "B",
-    "period_range": "2025-11 ~ 2026-04"
-  },
-  "amount_by_month": {
-    "2025-11": 290.00,
-    "2025-12": 310.00,
-    "2026-01": 305.00,
-    "2026-02": 320.00,
-    "2026-03": 330.00,
-    "2026-04": 315.00
-  },
-  "display_label": "Basado en tus últimos 6 meses",
+  "total_suggested": 312.50,
+  "suggestions": [
+    {
+      "category_id": "FOOD_DINING",
+      "category_name": "Food & Dining",
+      "suggested_amount": 312.50,
+      "confidence": "high",
+      "basis": {
+        "months_analyzed": 6,
+        "months_with_spend": 6,
+        "method": "wma",
+        "treatment": "B",
+        "period_range": "2025-11 ~ 2026-04"
+      },
+      "amount_by_month": {
+        "2025-11": 290.00,
+        "2025-12": 310.00,
+        "2026-01": 305.00,
+        "2026-02": 320.00,
+        "2026-03": 330.00,
+        "2026-04": 315.00
+      },
+      "display_label": "Basado en tus últimos 6 meses",
+      "model_version": "fase0-v1"
+    }
+  ],
+  "message": "Based on your last 3 months",
+  "method": "wma",
+  "treatment": "B",
   "model_version": "fase0-v1"
 }
 ```
 
-**Respuesta sin sugerencia** (< 2 meses de historial o ventana sin datos):
+**Respuesta sin sugerencia** (< 2 meses de historial o sin datos):
 
 ```json
 {
-  "idaccount": "SYN001",
-  "idclient": "1",
-  "idcompany": "1",
-  "defaultcategory": "Pets",
+  "idmember": "99999",
+  "idclient": "",
+  "idcompany": "",
   "period_id": "2026-05",
-  "suggested_amount": null,
-  "confidence": null,
-  "basis": null,
-  "amount_by_month": null,
-  "display_label": "No hay suficiente historial para esta categoría",
+  "total_suggested": null,
+  "suggestions": null,
+  "message": "Not enough history to calculate suggestions. At least 2 months of data required.",
+  "method": "wma",
+  "treatment": "B",
   "model_version": "fase0-v1"
 }
 ```
@@ -133,46 +144,46 @@ Query params (todos requeridos, validados por enum):
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `suggested_amount` | `float \| null` | Sugerencia redondeada a 2 decimales; `null` si no hay suficiente historial |
+| `total_suggested` | `float \| null` | Suma de todos los `suggested_amount` |
+| `suggestions` | `array \| null` | Sugerencias por categoría; `null` si no hay historial suficiente |
+| `suggestions[].category_id` | `string` | ID de la categoría desde Athena |
+| `suggestions[].category_name` | `string` | Nombre de la categoría desde Athena |
+| `suggestions[].suggested_amount` | `float \| null` | Sugerencia redondeada a 2 decimales |
 | `confidence` | `"high" \| "medium" \| "low" \| null` | `high` ≥ 6 meses, `medium` 3–5, `low` 2 |
 | `basis.months_analyzed` | `int` | Meses en la ventana de lookback (default: 3) |
-| `basis.months_with_positive_spend` | `int` | Meses con gasto > 0 usados para calcular el WMA |
+| `basis.months_with_spend` | `int` | Meses con gasto > 0 usados para calcular el WMA |
 | `basis.method` | `string` | Siempre `"wma"` en Fase 0 |
 | `basis.treatment` | `string` | Siempre `"B"` (treatment del modelo) |
 | `basis.period_range` | `string` | Rango analizado, e.g. `"2025-11 ~ 2026-04"` |
-| `amount_by_month` | `dict \| null` | Gasto mensual por mes de la ventana; `null` si no hay sugerencia |
+| `amount_by_month` | `dict \| null` | Gasto mensual por mes de la ventana |
 
 #### Códigos de respuesta HTTP
 
 | Código | Cuándo ocurre |
 |---|---|
-| `200` con datos | Solicitud válida y ≥ 2 meses de historial en la ventana |
-| `200` con `null` | Cuenta existe pero: sin datos para esa categoría, o < 2 meses, o ventana sin solapamiento |
-| `404` | `idaccount` no existe en ningún CSV de datos |
-| `422` | Parámetro con valor fuera del enum (e.g. `period_id=2099-01`, `idaccount=INVALIDO`) |
+| `200` con datos | Miembro encontrado con ≥ 2 meses de historial |
+| `200` con `null` | Miembro existe en Athena pero sin historial suficiente |
+| `404` | `idmember` no existe en la tabla Athena |
+| `422` | Formato de `period_id` inválido |
+| `500` | Error de conexión a Athena (`AthenaQueryError`) |
 
 ---
 
-### Valores válidos (enums)
+### Valores válidos
 
-#### `idaccount`
+#### `idmember`
 
-| Valor | Fuente de datos |
-|---|---|
-| `EXT2` | smart_budget_synthetic |
-| `EXT22` | smart_budget_synthetic |
-| `INT31880` | smart_budget_synthetic / test_internal |
-| `SYN001` – `SYN008` | smart_budget_synthetic |
+Cualquier `idmember` existente en `dlh_gold_dough_dev.smart_budget_transactions`. El endpoint retorna `404` si el miembro no existe en Athena.
 
-#### `defaultcategory`
-
-`Auto & Transport` · `Bills & Utilities` · `Education` · `Entertainment & Leisure` ·
-`Food & Dining` · `Gas` · `Gifts & Donations` · `Groceries` · `Health & Fitness` ·
-`Home & Rent` · `Personal Care & Beauty` · `Pets` · `Shopping` · `Subscriptions` · `Travel & Trips`
+Para verificar si un miembro existe:
+```python
+from smart_budget.athena_loader import member_exists_athena
+member_exists_athena("18973")  # → True / False
+```
 
 #### `period_id`
 
-`2025-09` · `2025-10` · `2025-11` · `2025-12` · `2026-01` · `2026-02` · `2026-03` · `2026-04` · `2026-05` · `2026-06`
+Cualquier mes en formato `YYYY-MM` (e.g. `2026-05`). El lookback usa los 3 meses previos al `period_id` indicado.
 
 ---
 
@@ -182,13 +193,11 @@ El endpoint aplica 3 reglas en orden antes de calcular la sugerencia:
 
 | # | Regla | Condición | Respuesta |
 |---|---|---|---|
-| 1 | Cuenta no existe | `idaccount` no está en ningún CSV de datos | `404 Not Found` |
-| 2 | Categoría no reconocida | `defaultcategory` no está en el catálogo válido | `422 Unprocessable Entity` |
-| 3 | Sin datos para el período | Cuenta y categoría existen, pero sin historial suficiente | `200` con `suggested_amount: null` |
+| 1 | Miembro no existe | `idmember` no está en Athena | `404 Not Found` |
+| 2 | Sin historial para el período | Miembro existe pero sin datos en la ventana | `200` con `suggestions: null` |
+| 3 | Historial insuficiente | Miembro con datos, pero < 2 meses con gasto > 0 | `200` con `suggestions: null` |
 
-> **Regla 3 en detalle:** aplica en dos sub-casos:
-> - **Sin datos de esa combinación cuenta/categoría** (ej. SYN001 no tiene datos de Groceries)
-> - **Historial < 2 meses** (gating mínimo para calcular una sugerencia confiable)
+> **Regla 3 en detalle:** gating mínimo de 2 meses con gasto positivo para emitir una sugerencia confiable.
 
 ---
 
@@ -325,15 +334,13 @@ curl -s "http://localhost:8000/smart-budget/suggestion?idaccount=EXT2&defaultcat
 
 ### Variables de entorno
 
-| Variable | Default | Descripción |
-|---|---|---|
-| `SMART_BUDGET_DATA_DIR` | `data/dough` | Directorio raíz donde buscar los CSVs |
-
-El loader busca los CSVs en este orden de prioridad:
-
-1. `$SMART_BUDGET_DATA_DIR/smart_budget_synthetic.csv` — datos pre-agregados (prioridad)
-2. `$SMART_BUDGET_DATA_DIR/test/test_internal.csv` — transacciones OLB raw
-3. `$SMART_BUDGET_DATA_DIR/test/test_external.csv` — transacciones Plaid raw
+| Variable | Default | Requerida | Descripción |
+|---|---|---|---|
+| `ATHENA_S3_STAGING_DIR` | — | ✅ | Bucket S3 para resultados temporales de Athena |
+| `ATHENA_REGION_NAME` | `us-east-2` | — | Región AWS del workgroup Athena |
+| `ATHENA_DATABASE` | `dlh_gold_dough_dev` | — | Base de datos Glue |
+| `ATHENA_TABLE` | `smart_budget_transactions` | — | Tabla Glue |
+| `SB_ENV` | `dev` | — | Entorno activo (`dev` \| `alpha`) — controla el dropdown de idmember en Swagger |
 
 ---
 
@@ -382,10 +389,12 @@ El notebook ejecuta 4 pasos:
 
 | Step | Qué hace |
 |---|---|
-| 1 — Empaquetar | Crea `model.tar.gz` con inference.py + CSVs de prueba |
-| 2 — Subir a S3 | `s3://blossom-analytics-datalake-dev/smart_budget/endpoint/v1/model.tar.gz` |
-| 3 — Deploy | `SKLearnModel.deploy()` → instancia `ml.m5.large` |
+| 1 — Empaquetar | Crea `model.tar.gz` con `inference.py` + código del modelo (sin CSV) |
+| 2 — Subir a S3 | `s3://blossom-analytics-safe-dev-nv/smart_budget/endpoint/v1/{ENV}/model.tar.gz` |
+| 3 — Deploy | `SKLearnModel.deploy()` con env vars Athena → instancia `ml.m5.large` |
 | 4 — Test | Invoca el endpoint y verifica la respuesta |
+
+> **Nota:** Los datos **no se empaquetan** en el tarball. El endpoint consulta Athena en cada invocación usando las env vars `ATHENA_*` que se pasan al `SKLearnModel`.
 
 ⚠️ **Ejecutar la celda de limpieza al terminar** — el endpoint genera costo por hora mientras esté activo.
 
@@ -395,90 +404,76 @@ El notebook ejecuta 4 pasos:
 import boto3, json
 
 # Requiere: aws sso login --profile blossom-dev
-runtime = boto3.client(
-    'sagemaker-runtime',
-    region_name='us-east-1',
-)
+runtime = boto3.client('sagemaker-runtime', region_name='us-east-2')
 
-def invoke(idaccount: str, defaultcategory: str, period_id: str) -> dict:
-    payload = json.dumps({
-        'idaccount': idaccount,
-        'defaultcategory': defaultcategory,
-        'period_id': period_id,
-    })
+ENDPOINT_NAME = 'smart-budget-suggestion-endpoint-dev'  # o -alpha
+
+def invoke(idmember: str, period_id: str) -> dict:
+    payload = json.dumps({'idmember': idmember, 'period_id': period_id})
     try:
         response = runtime.invoke_endpoint(
-            EndpointName='smart-budget-suggestion-endpoint',
+            EndpointName=ENDPOINT_NAME,
             ContentType='application/json',
             Body=payload,
         )
         return json.loads(response['Body'].read().decode('utf-8'))
     except runtime.exceptions.ModelError as e:
-        # Regla 1 (cuenta no existe) o Regla 2 (categoría inválida) → ModelError
-        print(f"Error de validación: {e}")
+        # Miembro no existe en Athena → ModelError
+        print(f"Error: {e}")
         return None
 
-# Regla 3 — Happy path: cuenta + categoría con datos
-result = invoke('EXT2', 'Food & Dining', '2026-05')
-print(result['suggested_amount'])   # → float > 0
+# Happy path — miembro con historial
+result = invoke('18973', '2026-05')
+print(result['total_suggested'])    # → float > 0
+print(result['suggestions'][0]['category_name'])  # → "Groceries"
 
-# Regla 3 — Sin datos para esa combinación → null
-result = invoke('SYN001', 'Groceries', '2026-05')
-print(result['suggested_amount'])   # → None
+# Miembro sin historial suficiente → suggestions null
+result = invoke('18973', '2026-05')
+print(result['suggestions'])   # → None si < 2 meses
 
-# Regla 1 — Cuenta no existe → ModelError (capturado arriba)
-result = invoke('CUENTA_INEXISTENTE', 'Groceries', '2026-05')   # → None
-
-# Regla 2 — Categoría inválida → ModelError (capturado arriba)
-result = invoke('EXT2', 'CategoriaInexistente', '2026-05')   # → None
+# Miembro no existe → ModelError (capturado arriba)
+result = invoke('INEXISTENTE', '2026-05')   # → None
 ```
 
 ### Invocar con AWS CLI
 
 ```bash
-# Regla 3 — Happy path (cuenta + categoría con datos) → suggested_amount > 0
+# Happy path → total_suggested > 0
 aws sagemaker-runtime invoke-endpoint \
-  --endpoint-name smart-budget-suggestion-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint-dev \
   --content-type application/json \
-  --body '{"idaccount":"EXT2","defaultcategory":"Food & Dining","period_id":"2026-05"}' \
+  --body '{"idmember":"18973","period_id":"2026-05"}' \
+  --region us-east-2 \
   --profile blossom-dev \
   /tmp/sm_response.json && cat /tmp/sm_response.json | jq .
 
-# Regla 1 — Cuenta no existe → ModelError 400
+# Miembro no existe → ModelError 400
 aws sagemaker-runtime invoke-endpoint \
-  --endpoint-name smart-budget-suggestion-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint-dev \
   --content-type application/json \
-  --body '{"idaccount":"CUENTA_INEXISTENTE","defaultcategory":"Groceries","period_id":"2026-05"}' \
+  --body '{"idmember":"INEXISTENTE","period_id":"2026-05"}' \
+  --region us-east-2 \
   --profile blossom-dev \
   /tmp/sm_err.json
-# SageMaker retorna: An error occurred (ModelError) ...
-# Body: {"error": "ValueError: idaccount not found: 'CUENTA_INEXISTENTE'"}
+# Body: {"error": "ValueError: idmember not found: 'INEXISTENTE'"}
 
-# Regla 2 — Categoría no válida → ModelError 400
+# Sin historial → suggestions null
 aws sagemaker-runtime invoke-endpoint \
-  --endpoint-name smart-budget-suggestion-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint-dev \
   --content-type application/json \
-  --body '{"idaccount":"EXT2","defaultcategory":"CategoriaInexistente","period_id":"2026-05"}' \
+  --body '{"idmember":"18973","period_id":"2019-01"}' \
+  --region us-east-2 \
   --profile blossom-dev \
-  /tmp/sm_err.json
-# SageMaker retorna: An error occurred (ModelError) ...
-# Body: {"error": "ValueError: invalid defaultcategory: 'CategoriaInexistente'"}
-
-# Regla 3 — Sin datos para esa combinación → suggested_amount null
-aws sagemaker-runtime invoke-endpoint \
-  --endpoint-name smart-budget-suggestion-endpoint \
-  --content-type application/json \
-  --body '{"idaccount":"SYN001","defaultcategory":"Groceries","period_id":"2026-05"}' \
-  --profile blossom-dev \
-  /tmp/sm_response.json && cat /tmp/sm_response.json | jq '{suggested_amount, display_label}'
-# → { "suggested_amount": null, "display_label": "No hay datos para esta cuenta y categoría" }
+  /tmp/sm_response.json && cat /tmp/sm_response.json | jq '{total_suggested, suggestions}'
+# → { "total_suggested": null, "suggestions": null }
 ```
 
 ### Verificar estado del endpoint
 
 ```bash
 aws sagemaker describe-endpoint \
-  --endpoint-name smart-budget-suggestion-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint-dev \
+  --region us-east-2 \
   --profile blossom-dev \
   --query 'EndpointStatus'
 # → "InService" si está activo
@@ -488,7 +483,8 @@ aws sagemaker describe-endpoint \
 
 ```bash
 aws sagemaker delete-endpoint \
-  --endpoint-name smart-budget-suggestion-endpoint \
+  --endpoint-name smart-budget-suggestion-endpoint-dev \
+  --region us-east-2 \
   --profile blossom-dev
 ```
 
@@ -500,9 +496,9 @@ aws sagemaker delete-endpoint \
 |---|---|---|
 | `ModuleNotFoundError: No module named 'fastapi'` | Dependencias no instaladas | `.venv/bin/pip install -r requirements.txt` |
 | `ModuleNotFoundError: No module named 'smart_budget'` | `PYTHONPATH` no apunta a `src/` | Usar `PYTHONPATH=src` al inicio del comando uvicorn |
-| `Internal Server Error: data directory not configured` | `SMART_BUDGET_DATA_DIR` no configurado | Usar `SMART_BUDGET_DATA_DIR=$(pwd)/data/dough` (path absoluto) |
-| `404 Not Found` en `/suggestion` | El `idaccount` no existe en ningún CSV | Usar cuentas de la tabla de cuentas disponibles |
-| `Base dir not found` en logs | Path relativo no resuelve desde el CWD | Reemplazar con path absoluto: `$(pwd)/data/dough` |
+| `AthenaQueryError` en logs | `ATHENA_S3_STAGING_DIR` no configurado o credenciales AWS inactivas | Verificar env vars + `aws sso login --profile blossom-dev` |
+| `404 Not Found` en `/suggestion` | `idmember` no existe en la tabla Athena | Verificar con `member_exists_athena(idmember)` |
+| `ModelError` en SageMaker | Miembro no existe o Athena inaccesible | Verificar credenciales IAM del execution role |
 | SageMaker: `EndpointNotFound` | El endpoint no está desplegado | Correr el notebook completo (Steps 1-3) |
 | SageMaker: `AccessDeniedException` | Sin credenciales AWS activas | `aws sso login --profile blossom-dev` |
 

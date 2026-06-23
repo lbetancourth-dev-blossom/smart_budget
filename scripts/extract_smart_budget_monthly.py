@@ -1,4 +1,12 @@
-"""scripts/extract_smart_budget_monthly.py — Extrae gasto mensual por miembro/categoría.
+"""scripts/extract_smart_budget_monthly.py — LEGACY: extrae gasto mensual desde PostgreSQL.
+
+⚠️  DEPRECADO (DATA-1275): este script extrae desde blossom-dough-consolidated-alpha (PostgreSQL).
+    Post-migración, los datos se consultan en tiempo real desde Athena:
+      dlh_gold_dough_dev.smart_budget_transactions
+    usando smart_budget.athena_loader.load_history_by_member_athena().
+
+    Este script se conserva para pipelines batch históricos y entornos sin acceso a Athena.
+    Para nuevas integraciones, usar Athena directamente.
 
 Lee directamente de blossom-dough-consolidated-alpha (schema public).
 Aplica todas las reglas de filtrado de Smart Budget en SQL y materializa

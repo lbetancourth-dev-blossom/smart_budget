@@ -1,20 +1,19 @@
-"""src/api/router.py — FastAPI router para Smart Budget (DATA-1179).
+"""src/api/router.py — FastAPI router para Smart Budget.
 
-Contrato de endpoint (DATA-1179):
+Contrato de endpoint:
   GET /smart-budget/suggestion?idmember=15632&period_id=2026-02
     → 200: MemberSuggestionResponse con array de todas las categorías + total_suggested
-    → 404: si idmember no existe
+    → 404: si idmember no existe en Athena
     → nunca 500 por falta de data — devolver suggestions vacío y log
 
+Fuente de datos: Athena (dlh_gold_dough_dev.smart_budget_transactions).
 Entorno activo: variable de entorno SB_ENV=dev|alpha (default: dev).
-El idmember en Swagger muestra la lista completa de miembros del entorno activo.
 """
 
 from __future__ import annotations
 
 import os
 from enum import Enum
-from pathlib import Path
 from typing import List, Optional, Type
 
 import pandas as pd
@@ -36,17 +35,7 @@ logger = structlog.get_logger()
 # Enums para Swagger UI — dropdowns en "Try it out"
 # ---------------------------------------------------------------------------
 
-_ENV_CSV: dict[str, str] = {
-    "dev":   "smart_budget_db_dev.csv",
-    "alpha": "smart_budget_db_alpha.csv",
-}
-
 _ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
-_DATA_PATH: Path = (
-    Path(os.getenv("SMART_BUDGET_DATA_DIR", "data"))
-    / _ENV_CSV.get(_ACTIVE_ENV, _ENV_CSV["dev"])
-)
-
 
 # Top-10 miembros con sugerencias en >1 categoría (pre-calculado por entorno, lb=3)
 _IDMEMBERS_DEV = [
