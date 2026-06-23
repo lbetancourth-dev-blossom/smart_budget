@@ -61,28 +61,36 @@ sequenceDiagram
 - **SageMaker SKLearnModel handler protocol** — sigue estrictamente el contrato de 4 funciones.
 - **Lazy imports** dentro de `predict_fn` para evitar fallos en import-time en el contenedor.
 - **LRU cache clearing** (`_synthetic_accounts.cache_clear()`) por invocación para inferencia stateless.
-- **Atomic data loading**: CSVs cargados desde `model_dir/data/` (empaquetados en `model.tar.gz`).
+- **Athena-based data loading**: los datos se consultan en tiempo de inferencia desde `dlh_gold_dough_dev.smart_budget_transactions` via `smart_budget.athena_loader` — ya no se empaquetan CSVs en `model.tar.gz`.
 
 ## Estructura del model.tar.gz
 
+Los datos ya **no** se incluyen en el tarball. La inferencia los consulta en tiempo real desde Athena.
+
 ```
 model.tar.gz
-├── data/
-│   ├── smart_budget_synthetic.csv   → dataset sintético (EXT1, EXT2, SYN*)
-│   ├── test_internal.csv            → cuentas OLB (SUB*) — LOAN* excluido por Rule 4
-│   └── test_external.csv            → cuentas externas (EXT*)
 └── smart_budget/                    → paquete Python empaquetado
     ├── __init__.py
     ├── aggregator.py
+    ├── athena_loader.py             → NEW: load_history_by_member_athena, member_exists_athena
     ├── filters.py
     ├── loader.py
     └── model.py
 ```
 
+### Variables de entorno requeridas en el endpoint SageMaker
+
+| Variable | Descripción |
+|---|---|
+| `ATHENA_S3_STAGING_DIR` | Bucket S3 para resultados de Athena (ej: `s3://blossom-analytics-safe-dev-nv/athena-results/`) |
+| `ATHENA_REGION_NAME` | Región AWS (ej: `us-east-1`) |
+| `ATHENA_DATABASE` | Base de datos Athena (ej: `dlh_gold_dough_dev`) |
+| `ATHENA_TABLE` | Tabla Athena (ej: `smart_budget_transactions`) |
+
 ## Reglas de negocio
 
 - **Rule 1**: `idaccount` desconocido → `ValueError` (→ HTTP 400 desde SageMaker)
-- **Rule 2**: `defaultcategory` inválida (catálogo de 15 items) → `ValueError` en `input_fn`
+- **Rule 2**: `category_id` inválido (no encontrado en Athena) → `ValueError` en `input_fn`
 - **Rule 3**: cuenta existe pero historia insuficiente (< 2 meses) → retorna `null` suggestion, nunca error
 - **Config fija**: `method=wma`, `treatment=B`, `lookback=3`, `min_months_gating=2`, `model_version="fase0-v1"`
 
@@ -100,7 +108,7 @@ model.tar.gz
 
 ## Dependencias
 
-**Internas:** [[01-core-model/README]] — `smart_budget.aggregator`, `smart_budget.loader`, `smart_budget.model`
+**Internas:** [[01-core-model/README]] — `smart_budget.aggregator`, `smart_budget.model`; `smart_budget.athena_loader` — `load_history_by_member_athena`, `member_exists_athena`
 **Externas (pinned):** `numpy==1.23.5`, `pandas==1.5.3`, `structlog>=21.0.0`
 
 ## Tests

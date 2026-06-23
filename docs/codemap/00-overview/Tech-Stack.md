@@ -18,6 +18,7 @@ last_commit: 9c0a1dc
 | Time-series forecasting | `statsmodels` (ExponentialSmoothing para Holt-Winters) |
 | REST API | `fastapi`, `uvicorn`, `pydantic` |
 | AWS / S3 | `boto3`, `pyarrow` (lectura de Parquet en el datalake) |
+| AWS Athena | `pyathena>=3.0,<4` (consultas a `dlh_gold_dough_dev.smart_budget_transactions`) |
 | AWS SageMaker | `sagemaker` SDK, imagen `sklearn:1.2-1` (Python 3.9, numpy 1.23.5, pandas 1.5.3) |
 | Logging | `structlog >= 21.0.0` (logs estructurados, nunca `print`) |
 
@@ -46,7 +47,7 @@ last_commit: 9c0a1dc
 | Pipeline ETL | Python scripts (Fase 0) → dbt + Airflow (Fase 1+) |
 | Serving Fase 0 | FastAPI (`src/api/`) + SageMaker `SKLearnModel` (`src/sagemaker/`) |
 | Serving Fase 1+ | BlossomAPI (REST) leyendo tabla pre-calculada |
-| Output DB | PostgreSQL (`blossom-dough-consolidated-dev`) |
+| Data source (inferencia) | AWS Athena — tabla `dlh_gold_dough_dev.smart_budget_transactions` (via `pyathena`) |
 | Frontend | Dough UI (repo separado) |
 | S3 modelo | `s3://blossom-analytics-safe-dev-nv/smart_budget/endpoint/v1/model.tar.gz` |
 

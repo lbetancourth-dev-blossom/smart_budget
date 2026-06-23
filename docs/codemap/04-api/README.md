@@ -31,7 +31,7 @@ Ver [[04-api/Public-API]] para el contrato completo.
 
 | Símbolo | Tipo | Descripción |
 |---|---|---|
-| `GET /smart-budget/suggestion` | Route | Devuelve sugerencia por `idaccount + defaultcategory + period_id` |
+| `GET /smart-budget/suggestion` | Route | Devuelve sugerencia por `idaccount + category_id + period_id` |
 | `SuggestionResponse` | Pydantic model | Schema de respuesta (incluye `amount_by_month`) |
 | `BasisDetail` | Pydantic model | Sub-schema con metadata del cálculo |
 | `IdAccount`, `Category`, `PeriodId` | Enum | Validación de parámetros — FastAPI rechaza valores inválidos con 422 |
@@ -46,12 +46,12 @@ sequenceDiagram
     participant Aggregator as aggregator.py
     participant Model as model.py
 
-    Cliente->>Router: GET /smart-budget/suggestion?idaccount=EXT2&defaultcategory=Food&period_id=2026-05
-    Router->>Loader: account_exists(idaccount)
+    Cliente->>Router: GET /smart-budget/suggestion?idaccount=EXT2&category_id=42&period_id=2026-05
+    Router->>Loader: member_exists_athena(idaccount)
     alt cuenta no existe
         Router-->>Cliente: 404 Not Found
     end
-    Router->>Loader: load_history(idaccount, defaultcategory)
+    Router->>Loader: load_history_by_member_athena(idaccount, category_id)
     Router->>Aggregator: apply_gating(df, min_months=2)
     Router->>Model: compute_budget_suggestions(df, method="wma", treatment="B", lookback=3)
     alt sin suficiente historia
@@ -66,7 +66,7 @@ sequenceDiagram
 - **Orchestrator/pipeline**: router delega a tres módulos domain (loader → aggregator → model) en pipeline secuencial.
 - **Enum-gated validation**: los tres query params son `str, Enum` — FastAPI rechaza valores desconocidos con `422` antes de correr lógica de negocio.
 - **Structured logging**: cada paso emite eventos con `structlog` (`smart_budget.suggestion.start`, `.done`, `.null`).
-- **Environment-driven config**: `SMART_BUDGET_DATA_DIR` configura el directorio de datos con fallback a `data/dough/`.
+- **Environment-driven config**: variables `ATHENA_S3_STAGING_DIR`, `ATHENA_REGION_NAME`, `ATHENA_DATABASE`, `ATHENA_TABLE` configuran la conexión Athena.
 
 ## Reglas de negocio
 
@@ -78,7 +78,7 @@ sequenceDiagram
 
 ## Dependencias
 
-**Internas:** [[01-core-model/README]] — `smart_budget.aggregator`, `smart_budget.loader`, `smart_budget.model`
+**Internas:** [[01-core-model/README]] — `smart_budget.aggregator`, `smart_budget.model`; [[smart_budget.athena_loader]] — `load_history_by_member_athena`, `member_exists_athena`
 **Externas:** `fastapi`, `pydantic`, `pandas`, `structlog`
 
 ## Tests
