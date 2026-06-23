@@ -39,12 +39,28 @@ _ACTIVE_ENV: str = os.getenv("SB_ENV", "dev").lower()
 
 # Top-10 miembros con sugerencias en >1 categoría (pre-calculado por entorno, lb=3)
 _IDMEMBERS_DEV = [
-    "11393", "9646", "10859", "11001", "11066",
-    "12274", "12277", "12284", "12288", "12290",
+    "11393",
+    "9646",
+    "10859",
+    "11001",
+    "11066",
+    "12274",
+    "12277",
+    "12284",
+    "12288",
+    "12290",
 ]
 _IDMEMBERS_ALPHA = [
-    "385462", "593079", "385543", "385664", "586384",
-    "388104", "388305", "385952", "538781", "385640",
+    "385462",
+    "593079",
+    "385543",
+    "385664",
+    "586384",
+    "388104",
+    "388305",
+    "385952",
+    "538781",
+    "385640",
 ]
 
 _members = _IDMEMBERS_ALPHA if _ACTIVE_ENV == "alpha" else _IDMEMBERS_DEV
@@ -138,7 +154,12 @@ def get_suggestion(
     # reference_date = period_id − 1 mes (meses ANTERIORES al período a presupuestar)
     reference_date = str(pd.Period(period_id_val, freq="M") - 1)
 
-    log = logger.bind(idmember=idmember_val, period_id=period_id_val, reference_date=reference_date, env=_ACTIVE_ENV)
+    log = logger.bind(
+        idmember=idmember_val,
+        period_id=period_id_val,
+        reference_date=reference_date,
+        env=_ACTIVE_ENV,
+    )
     log.info("smart_budget.suggestion.start")
 
     # Cargar historial de todas las categorías del miembro desde Athena
@@ -154,7 +175,9 @@ def get_suggestion(
             exists = member_exists_athena(idmember=idmember_val)
         except AthenaQueryError as e:
             log.error("smart_budget.suggestion.athena_error", error=str(e))
-            raise HTTPException(status_code=503, detail="datalake temporarily unavailable")
+            raise HTTPException(
+                status_code=503, detail="datalake temporarily unavailable"
+            )
         if not exists:
             log.info("smart_budget.suggestion.not_found")
             raise HTTPException(status_code=404, detail="idmember not found")
@@ -181,7 +204,9 @@ def get_suggestion(
     gated = apply_gating(history, min_months=_MIN_MONTHS_GATING)
 
     if gated.empty:
-        log.info("smart_budget.suggestion.empty", reason="gating_min_months_all_categories")
+        log.info(
+            "smart_budget.suggestion.empty", reason="gating_min_months_all_categories"
+        )
         return MemberSuggestionResponse(
             idmember=str(idmember_val),
             idclient=idclient,
@@ -227,7 +252,9 @@ def get_suggestion(
         cat_name = r.get("category_name", "")
 
         # amount_by_month: filtrar historial de esta categoría para la ventana
-        cat_history = gated[gated["category_name"] == cat_name] if cat_name else pd.DataFrame()
+        cat_history = (
+            gated[gated["category_name"] == cat_name] if cat_name else pd.DataFrame()
+        )
         amount_by_month = _build_amount_by_month(cat_history, reference_date, _LOOKBACK)
 
         amount = r.get("suggested_amount")
@@ -237,16 +264,24 @@ def get_suggestion(
                 category_name=cat_name,
                 suggested_amount=round(amount, 2) if amount is not None else None,
                 confidence=r.get("confidence"),
-                basis=BasisDetail(
-                    months_analyzed=basis_data.get("months_analyzed", 0),
-                    months_with_spend=basis_data.get("months_with_positive_spend", 0),
-                    period_range=basis_data.get("period_range", ""),
-                ) if basis_data else None,
+                basis=(
+                    BasisDetail(
+                        months_analyzed=basis_data.get("months_analyzed", 0),
+                        months_with_spend=basis_data.get(
+                            "months_with_positive_spend", 0
+                        ),
+                        period_range=basis_data.get("period_range", ""),
+                    )
+                    if basis_data
+                    else None
+                ),
                 amount_by_month=amount_by_month,
             )
         )
 
-    model_version = results[0].get("model_version", "fase0-v1") if results else "fase0-v1"
+    model_version = (
+        results[0].get("model_version", "fase0-v1") if results else "fase0-v1"
+    )
     total_suggested = float(results[0].get("total_suggested") or 0.0)
 
     log.info(
