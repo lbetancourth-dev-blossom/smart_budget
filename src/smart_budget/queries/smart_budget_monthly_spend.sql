@@ -1,9 +1,10 @@
 -- smart_budget_monthly_spend.sql
--- Extrae el gasto mensual agregado por miembro y categoría desde fact_transactions.
+-- DEFINICIÓN DE FUENTE para la tabla Glue dlh_gold_dough_dev.smart_budget_transactions.
+-- Este SQL define la transformación que materializa la tabla Glue.
+-- El endpoint ahora consulta directamente dlh_gold_dough_dev.smart_budget_transactions via pyathena.
 --
--- Fuente : blossom-dough-consolidated-alpha · schema public
+-- Fuente : dlh_gold_dough_dev.smart_budget_transactions (Athena/Glue)
 -- Grain  : (idmember, idcategory, iddefaultcategory, period_yyyymm)
--- Output : base para smart_budget_db_dev.csv / smart_budget_db_alpha.csv y pipeline batch
 --
 -- Reglas de filtrado aplicadas (equivalentes a filters.py):
 --   1. deletedat IS NULL                      → excluir soft-deleted

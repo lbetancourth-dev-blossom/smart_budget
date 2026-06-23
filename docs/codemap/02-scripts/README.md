@@ -21,11 +21,16 @@ Scripts de extracción de datos desde S3, construcción de `fact_transactions`, 
 ```
 scripts/
 ├── extract_datalake_to_csv.py      → Descarga tablas Parquet de S3 → CSV local
-├── build_fact_transactions.py      → Construye fact_transactions (OLB + DOUGH)
+├── build_fact_transactions.py      → Construye fact_transactions (OLB + DOUGH)  [LEGACY]
 ├── run_smart_budget_prep.py        → Pipeline filter → aggregate → gating → CSV
 ├── run_methods.py                  → CLI para calcular sugerencias por método
 └── generate_synthetic_dataset.py   → Genera dataset sintético para tests/dev
 ```
+
+> **LEGACY (post-DATA-1275):** `extract_smart_budget_monthly.py` y `build_fact_transactions.py --source db`
+> están deprecados tras la migración a Athena/Glue. El endpoint ahora consulta
+> `dlh_gold_dough_dev.smart_budget_transactions` directamente via pyathena.
+> Ver nuevo módulo: [[01-core-model/athena_loader]] → `src/smart_budget/athena_loader.py`
 
 ## Flujo de datos entre scripts
 
